@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"laziest/internal/binding"
 	"laziest/internal/config"
 )
 
@@ -62,9 +63,14 @@ func GenerateAliases(cfg *config.Config) string {
 	sb.WriteString("# Run 'laziest' to manage your command aliases\n\n")
 
 	for _, cmd := range cfg.Commands {
-		// Escape single quotes in the command
-		escaped := strings.ReplaceAll(cmd.Command, "'", "'\\''")
-		sb.WriteString(fmt.Sprintf("alias %s='%s'\n", cmd.Name, escaped))
+		if binding.HasBindings(cmd.Command) {
+			// Commands with bindings invoke laziest run for interactive resolution
+			sb.WriteString(fmt.Sprintf("alias %s='laziest run %s'\n", cmd.Name, cmd.Name))
+		} else {
+			// Regular alias - escape single quotes in the command
+			escaped := strings.ReplaceAll(cmd.Command, "'", "'\\''")
+			sb.WriteString(fmt.Sprintf("alias %s='%s'\n", cmd.Name, escaped))
+		}
 	}
 
 	return sb.String()

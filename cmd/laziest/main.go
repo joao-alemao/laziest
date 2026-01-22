@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"laziest/internal/binding"
 	"laziest/internal/config"
 	"laziest/internal/picker"
 	"laziest/internal/shell"
@@ -70,9 +71,16 @@ Tags:
   - Comma-separated, no spaces: -t Tag1,Tag2
   - Used for filtering and organizing commands
 
+Dynamic bindings:
+  Directory binding:  {%/path/to/dir%} or {%/path/to/dir:*.yaml%}
+  Value binding:      {%[val1,val2,val3]%}
+  
+  Commands with bindings prompt for selection at runtime.
+
 Examples:
   laziest add gs "git status" -t Git
-  laziest add train "python train.py" -t ML,Training
+  laziest add train "python train.py --config {%/configs:*.yaml%}" -t ML
+  laziest add deploy "kubectl apply --dry-run={%[none,client,server]%}" -t K8s
   laziest run gs
   laziest run -t ML
   laziest list -t Git
@@ -232,6 +240,20 @@ func cmdAdd(args []string) {
 		os.Exit(1)
 	}
 
+	// Validate bindings in command
+	bindings, err := binding.Parse(command)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Warn about any issues with bindings
+	for _, b := range bindings {
+		for _, warning := range binding.Validate(b) {
+			fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+		}
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
@@ -327,7 +349,46 @@ func cmdRun(args []string) {
 	}
 
 	// Execute the command
-	fmt.Printf("Running: %s\n", cmd.Command)
+	finalCommand := cmd.Command
+
+	// Parse and resolve any bindings
+	bindings, err := binding.Parse(cmd.Command)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing bindings: %v\n", err)
+		os.Exit(1)
+	}
+
+	for _, b := range bindings {
+		var selected string
+		prompt := binding.ExtractPromptContext(finalCommand, b)
+
+		if b.Type == binding.BindingDirectory {
+			// List files and show picker
+			files, err := binding.ListFiles(b)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+
+			result := picker.PickString(files, prompt)
+			if result == nil {
+				os.Exit(0) // User cancelled
+			}
+			// Use absolute path
+			selected = binding.GetAbsolutePath(b, *result)
+
+		} else { // BindingValues
+			result := picker.PickString(b.Values, prompt)
+			if result == nil {
+				os.Exit(0) // User cancelled
+			}
+			selected = *result
+		}
+
+		finalCommand = binding.Resolve(finalCommand, b, selected)
+	}
+
+	fmt.Printf("Running: %s\n", finalCommand)
 	fmt.Println(strings.Repeat("-", 40))
 
 	// Determine which shell to use
@@ -336,7 +397,7 @@ func cmdRun(args []string) {
 		shellPath = "/bin/sh"
 	}
 
-	execCmd := exec.Command(shellPath, "-c", cmd.Command)
+	execCmd := exec.Command(shellPath, "-c", finalCommand)
 	execCmd.Stdin = os.Stdin
 	execCmd.Stdout = os.Stdout
 	execCmd.Stderr = os.Stderr
