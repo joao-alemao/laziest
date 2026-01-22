@@ -17,6 +17,7 @@ const (
 	ActionSelectWithExtra
 	ActionSkip
 	ActionCustom
+	ActionDelete
 )
 
 // PickResult represents the result of a picker interaction
@@ -30,10 +31,19 @@ type PickResult struct {
 type Item struct {
 	Name    string
 	Command string
+	Tags    []string
+}
+
+// formatTagsDisplay formats tags for picker display
+func formatTagsDisplay(tags []string) string {
+	if len(tags) == 0 {
+		return "[]"
+	}
+	return "[" + strings.Join(tags, ", ") + "]"
 }
 
 // Pick displays an interactive picker and returns the selected item
-// Returns PickResult with action (Cancel, Select, or SelectWithExtra)
+// Returns PickResult with action (Cancel, Select, SelectWithExtra, or Delete)
 func Pick(items []Item, prompt string) PickResult {
 	if len(items) == 0 {
 		return PickResult{Action: ActionCancel}
@@ -59,17 +69,24 @@ func Pick(items []Item, prompt string) PickResult {
 
 	selected := 0
 	maxNameLen := 0
+	maxTagLen := 0
 	for _, item := range items {
 		if len(item.Name) > maxNameLen {
 			maxNameLen = len(item.Name)
 		}
+		tagStr := formatTagsDisplay(item.Tags)
+		if len(tagStr) > maxTagLen {
+			maxTagLen = len(tagStr)
+		}
 	}
 
 	// Initial render
-	render(items, selected, maxNameLen, prompt)
+	render(items, selected, maxNameLen, maxTagLen, prompt, "")
 
 	// Input loop
 	buf := make([]byte, 3)
+	confirmDelete := false
+
 	for {
 		n, err := os.Stdin.Read(buf)
 		if err != nil {
@@ -77,6 +94,21 @@ func Pick(items []Item, prompt string) PickResult {
 		}
 
 		if n == 0 {
+			continue
+		}
+
+		// Handle delete confirmation mode
+		if confirmDelete {
+			if buf[0] == 'y' || buf[0] == 'Y' {
+				clearLines(len(items) + 2)
+				return PickResult{
+					Action: ActionDelete,
+					Value:  items[selected].Name,
+				}
+			}
+			// Any other key cancels delete
+			confirmDelete = false
+			render(items, selected, maxNameLen, maxTagLen, prompt, "")
 			continue
 		}
 
@@ -90,12 +122,16 @@ func Pick(items []Item, prompt string) PickResult {
 			clearLines(len(items) + 2)
 			return PickResult{Action: ActionCancel}
 
+		case buf[0] == 'x', buf[0] == 'X': // x - delete
+			confirmDelete = true
+			render(items, selected, maxNameLen, maxTagLen, prompt, fmt.Sprintf("Delete '%s'? (y/n)", items[selected].Name))
+
 		case buf[0] == 'e', buf[0] == 'E': // e - extra args
 			clearLines(len(items) + 2)
 			extra := PromptInput("Extra arguments: ")
 			if extra == "" {
 				// User cancelled extra input, go back to picker
-				render(items, selected, maxNameLen, prompt)
+				render(items, selected, maxNameLen, maxTagLen, prompt, "")
 				continue
 			}
 			return PickResult{
@@ -114,13 +150,13 @@ func Pick(items []Item, prompt string) PickResult {
 		case buf[0] == 'k', buf[0] == 'K': // k - up
 			if selected > 0 {
 				selected--
-				render(items, selected, maxNameLen, prompt)
+				render(items, selected, maxNameLen, maxTagLen, prompt, "")
 			}
 
 		case buf[0] == 'j', buf[0] == 'J': // j - down
 			if selected < len(items)-1 {
 				selected++
-				render(items, selected, maxNameLen, prompt)
+				render(items, selected, maxNameLen, maxTagLen, prompt, "")
 			}
 
 		case n == 3 && buf[0] == 27 && buf[1] == 91: // Arrow keys
@@ -128,12 +164,12 @@ func Pick(items []Item, prompt string) PickResult {
 			case 65: // Up
 				if selected > 0 {
 					selected--
-					render(items, selected, maxNameLen, prompt)
+					render(items, selected, maxNameLen, maxTagLen, prompt, "")
 				}
 			case 66: // Down
 				if selected < len(items)-1 {
 					selected++
-					render(items, selected, maxNameLen, prompt)
+					render(items, selected, maxNameLen, maxTagLen, prompt, "")
 				}
 			}
 		}
@@ -141,24 +177,30 @@ func Pick(items []Item, prompt string) PickResult {
 }
 
 // render draws the picker UI
-func render(items []Item, selected int, maxNameLen int, prompt string) {
+// confirmMsg is shown instead of help line when non-empty (for delete confirmation)
+func render(items []Item, selected int, maxNameLen int, maxTagLen int, prompt string, confirmMsg string) {
 	// Move cursor to start and clear
 	clearLines(len(items) + 2)
 
 	// Print prompt
 	fmt.Printf("%s\r\n", prompt)
 
-	// Print items
+	// Print items with tags
 	for i, item := range items {
+		tagStr := formatTagsDisplay(item.Tags)
 		if i == selected {
-			fmt.Printf("  \033[7m> %-*s  %s\033[0m\r\n", maxNameLen, item.Name, item.Command)
+			fmt.Printf("  \033[7m> %-*s  %-*s  %s\033[0m\r\n", maxNameLen, item.Name, maxTagLen, tagStr, item.Command)
 		} else {
-			fmt.Printf("    %-*s  %s\r\n", maxNameLen, item.Name, item.Command)
+			fmt.Printf("    %-*s  %-*s  %s\r\n", maxNameLen, item.Name, maxTagLen, tagStr, item.Command)
 		}
 	}
 
-	// Print help
-	fmt.Printf("\033[2m  [↑/↓/j/k] navigate  [Enter] select  [e] extra args  [q/Esc] cancel\033[0m")
+	// Print help or confirmation message
+	if confirmMsg != "" {
+		fmt.Printf("\033[33m  %s\033[0m", confirmMsg) // Yellow color for confirmation
+	} else {
+		fmt.Printf("\033[2m  [↑/↓/j/k] navigate  [Enter] select  [e] extra args  [x] delete  [q/Esc] cancel\033[0m")
+	}
 }
 
 // clearLines moves cursor up and clears lines
