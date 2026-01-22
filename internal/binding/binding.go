@@ -261,8 +261,13 @@ func GetAbsolutePath(b Binding, relativePath string) string {
 }
 
 // Resolve replaces the binding placeholder with the given value in the command
+// If the binding has a flag, it outputs "flag value" (e.g., "--debug True")
 func Resolve(command string, b Binding, value string) string {
-	return strings.Replace(command, b.Placeholder, value, 1)
+	replacement := value
+	if b.Flag != "" {
+		replacement = b.Flag + " " + value
+	}
+	return strings.Replace(command, b.Placeholder, replacement, 1)
 }
 
 // HasBindings checks if a command string contains any bindings
