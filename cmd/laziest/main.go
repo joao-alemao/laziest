@@ -17,7 +17,7 @@ var version = "dev"
 
 func main() {
 	if len(os.Args) < 2 {
-		cmdList(nil)
+		cmdInteractiveList(nil)
 		os.Exit(0)
 	}
 
@@ -26,7 +26,7 @@ func main() {
 	switch cmd {
 	case "list", "ls", "l":
 		tags, _ := parseTagsFlag(os.Args[2:])
-		cmdList(tags)
+		cmdInteractiveList(tags)
 	case "add", "a":
 		cmdAdd(os.Args[2:])
 	case "run", "r":
@@ -52,11 +52,11 @@ func printUsage() {
 	fmt.Println(`laziest - Quick command aliases manager
 
 Usage:
-  laziest                      List all commands (grouped by tags)
-  laziest list [-t <tag>]      List commands, optionally filter by tag
+  laziest                      Interactive command picker
+  laziest list [-t <tag>]      Interactive picker, optionally filter by tag
   laziest add <name> <cmd> [-t <tags>]  Add a new command
-  laziest run <name>           Run command by name
-  laziest run -t <tag>         Pick and run a command with that tag
+  laziest run <name> [--extra <args>]   Run command by name
+  laziest run -t <tag> [--extra <args>] Pick and run a command with that tag
   laziest remove <name>        Remove a command
   laziest tags                 List all tags with command counts
   laziest init                 One-time setup: add source line to shell rc
@@ -74,14 +74,34 @@ Tags:
 Dynamic bindings:
   Directory binding:  {%/path/to/dir%} or {%/path/to/dir:*.yaml%}
   Value binding:      {%[val1,val2,val3]%}
+  Custom input:       {%[val1,val2,...]%} - allows custom value via [Custom] option
+  Optional binding:   {%?...%} or {%?--flag:...%}
   
   Commands with bindings prompt for selection at runtime.
+  Optional bindings show [Skip] option. Press 's' to skip.
+  Custom input bindings show [Custom] option. Press 'c' for custom value.
+  Skipping removes both the flag and placeholder from the command.
+
+Extra arguments:
+  Use --extra flag or press 'e' in picker to append extra args to command.
+  Example: laziest run train --extra --verbose --epochs 100
+
+Interactive picker keys:
+  ↑/↓ or j/k   Navigate
+  Enter        Select and run
+  e            Add extra args then run
+  c            Enter custom value (when ... in binding)
+  s            Skip optional binding
+  q or Esc     Cancel
 
 Examples:
   laziest add gs "git status" -t Git
   laziest add train "python train.py --config {%/configs:*.yaml%}" -t ML
   laziest add deploy "kubectl apply --dry-run={%[none,client,server]%}" -t K8s
+  laziest add debug "python train.py {%?--debug:[True,False]%}" -t ML
+  laziest add epochs "python train.py --epochs {%[10,50,100,...]%}" -t ML
   laziest run gs
+  laziest run train --extra --verbose
   laziest run -t ML
   laziest list -t Git
   laziest rm gs`)
@@ -197,6 +217,153 @@ func cmdList(filterTags []string) {
 	fmt.Println()
 }
 
+func cmdInteractiveList(filterTags []string) {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(cfg.Commands) == 0 {
+		fmt.Println("No commands saved.")
+		fmt.Println()
+		fmt.Println("Get started:")
+		fmt.Println("  1. Run 'laziest init' to set up shell integration")
+		fmt.Println("  2. Add commands with 'laziest add <name> <command> -t <tags>'")
+		return
+	}
+
+	// Filter commands if tag specified
+	var commands []config.Command
+	if len(filterTags) > 0 {
+		// Get commands matching any of the filter tags
+		seen := make(map[string]bool)
+		for _, tag := range filterTags {
+			for _, cmd := range cfg.GetCommandsByTag(tag) {
+				if !seen[cmd.Name] {
+					seen[cmd.Name] = true
+					commands = append(commands, cmd)
+				}
+			}
+		}
+		if len(commands) == 0 {
+			fmt.Printf("No commands found with tag(s): %s\n", strings.Join(filterTags, ", "))
+			return
+		}
+	} else {
+		commands = cfg.Commands
+	}
+
+	// Build picker items
+	items := make([]picker.Item, len(commands))
+	for i, cmd := range commands {
+		items[i] = picker.Item{Name: cmd.Name, Command: cmd.Command}
+	}
+
+	// Show picker
+	var promptStr string
+	if len(filterTags) > 0 {
+		promptStr = fmt.Sprintf("Select command [%s]:", strings.Join(filterTags, ", "))
+	} else {
+		promptStr = "Select command:"
+	}
+
+	result := picker.Pick(items, promptStr)
+	if result.Action == picker.ActionCancel {
+		return
+	}
+
+	// Get the selected command
+	cmd, err := cfg.GetCommandByName(result.Value)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Resolve bindings and run
+	finalCommand := cmd.Command
+	extraArgs := ""
+
+	// Handle extra args from picker
+	if result.Action == picker.ActionSelectWithExtra {
+		extraArgs = result.Extra
+	}
+
+	// Parse and resolve any bindings
+	bindings, err := binding.Parse(cmd.Command)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing bindings: %v\n", err)
+		os.Exit(1)
+	}
+
+	for _, b := range bindings {
+		var selected string
+		prompt := binding.ExtractPromptContext(finalCommand, b)
+
+		if b.Type == binding.BindingDirectory {
+			// List files and show picker
+			files, err := binding.ListFiles(b)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				os.Exit(1)
+			}
+
+			bindResult := picker.PickString(files, prompt, b.Optional, false)
+			if bindResult.Action == picker.ActionCancel {
+				os.Exit(0) // User cancelled
+			}
+			if bindResult.Action == picker.ActionSkip {
+				// Remove binding and flag from command
+				finalCommand = binding.RemoveWithFlag(finalCommand, b)
+				continue
+			}
+			// Use absolute path
+			selected = binding.GetAbsolutePath(b, bindResult.Value)
+
+		} else { // BindingValues
+			bindResult := picker.PickString(b.Values, prompt, b.Optional, b.AllowCustom)
+			if bindResult.Action == picker.ActionCancel {
+				os.Exit(0) // User cancelled
+			}
+			if bindResult.Action == picker.ActionSkip {
+				// Remove binding and flag from command
+				finalCommand = binding.RemoveWithFlag(finalCommand, b)
+				continue
+			}
+			selected = bindResult.Value
+		}
+
+		finalCommand = binding.Resolve(finalCommand, b, selected)
+	}
+
+	// Append extra args if provided
+	if extraArgs != "" {
+		finalCommand = finalCommand + " " + extraArgs
+	}
+
+	fmt.Printf("Running: %s\n", finalCommand)
+	fmt.Println(strings.Repeat("-", 40))
+
+	// Determine which shell to use
+	shellPath := os.Getenv("SHELL")
+	if shellPath == "" {
+		shellPath = "/bin/sh"
+	}
+
+	execCmd := exec.Command(shellPath, "-c", finalCommand)
+	execCmd.Stdin = os.Stdin
+	execCmd.Stdout = os.Stdout
+	execCmd.Stderr = os.Stderr
+
+	if err := execCmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		fmt.Fprintf(os.Stderr, "Error executing command: %v\n", err)
+		os.Exit(1)
+	}
+}
+
 func cmdAdd(args []string) {
 	// Parse tags flag
 	tags, remaining := parseTagsFlag(args)
@@ -281,7 +448,23 @@ func cmdAdd(args []string) {
 	}
 }
 
+// parseExtraArgs splits args at --extra, returns (before, extraArgs)
+func parseExtraArgs(args []string) ([]string, string) {
+	for i, arg := range args {
+		if arg == "--extra" {
+			if i+1 < len(args) {
+				return args[:i], strings.Join(args[i+1:], " ")
+			}
+			return args[:i], ""
+		}
+	}
+	return args, ""
+}
+
 func cmdRun(args []string) {
+	// Parse extra args first
+	args, extraArgs := parseExtraArgs(args)
+
 	// Parse tags flag
 	tags, remaining := parseTagsFlag(args)
 
@@ -326,13 +509,22 @@ func cmdRun(args []string) {
 				items[i] = picker.Item{Name: m.Name, Command: m.Command}
 			}
 
-			selected := picker.Pick(items, fmt.Sprintf("Select command [%s]:", strings.Join(tags, ", ")))
-			if selected == nil {
+			result := picker.Pick(items, fmt.Sprintf("Select command [%s]:", strings.Join(tags, ", ")))
+			if result.Action == picker.ActionCancel {
 				os.Exit(0) // User cancelled
 			}
 
+			// Handle extra args from picker
+			if result.Action == picker.ActionSelectWithExtra {
+				if extraArgs != "" {
+					extraArgs = extraArgs + " " + result.Extra
+				} else {
+					extraArgs = result.Extra
+				}
+			}
+
 			// Find the selected command
-			cmd, _ = cfg.GetCommandByName(selected.Name)
+			cmd, _ = cfg.GetCommandByName(result.Value)
 		}
 	} else if len(remaining) > 0 {
 		// Run by name
@@ -370,22 +562,37 @@ func cmdRun(args []string) {
 				os.Exit(1)
 			}
 
-			result := picker.PickString(files, prompt)
-			if result == nil {
+			result := picker.PickString(files, prompt, b.Optional, false)
+			if result.Action == picker.ActionCancel {
 				os.Exit(0) // User cancelled
+			}
+			if result.Action == picker.ActionSkip {
+				// Remove binding and flag from command
+				finalCommand = binding.RemoveWithFlag(finalCommand, b)
+				continue
 			}
 			// Use absolute path
-			selected = binding.GetAbsolutePath(b, *result)
+			selected = binding.GetAbsolutePath(b, result.Value)
 
 		} else { // BindingValues
-			result := picker.PickString(b.Values, prompt)
-			if result == nil {
+			result := picker.PickString(b.Values, prompt, b.Optional, b.AllowCustom)
+			if result.Action == picker.ActionCancel {
 				os.Exit(0) // User cancelled
 			}
-			selected = *result
+			if result.Action == picker.ActionSkip {
+				// Remove binding and flag from command
+				finalCommand = binding.RemoveWithFlag(finalCommand, b)
+				continue
+			}
+			selected = result.Value
 		}
 
 		finalCommand = binding.Resolve(finalCommand, b, selected)
+	}
+
+	// Append extra args if provided
+	if extraArgs != "" {
+		finalCommand = finalCommand + " " + extraArgs
 	}
 
 	fmt.Printf("Running: %s\n", finalCommand)

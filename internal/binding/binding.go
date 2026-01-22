@@ -24,6 +24,9 @@ type Binding struct {
 	Filter      string   // Glob filter for directory bindings (e.g., "*.yaml")
 	Values      []string // For value bindings
 	Placeholder string   // The original placeholder text e.g. "{%/configs:*.yaml%}"
+	Optional    bool     // True if binding starts with ? (e.g., {%?...%})
+	Flag        string   // Optional flag prefix (e.g., "--debug" from {%--debug:[...]%})
+	AllowCustom bool     // True if binding allows custom input (has ... in values)
 }
 
 // bindingPattern matches {%...%} placeholders
@@ -63,6 +66,29 @@ func parseContent(content, placeholder string) (Binding, error) {
 		return Binding{}, fmt.Errorf("empty binding: %s", placeholder)
 	}
 
+	optional := false
+	flag := ""
+
+	// Check for optional prefix: ?
+	if strings.HasPrefix(content, "?") {
+		optional = true
+		content = strings.TrimSpace(content[1:])
+		if content == "" {
+			return Binding{}, fmt.Errorf("empty binding after ?: %s", placeholder)
+		}
+	}
+
+	// Check for flag prefix: --flag: or -f:
+	// Flag must come before [ or /
+	flagPattern := regexp.MustCompile(`^(-{1,2}[\w-]+):\s*`)
+	if match := flagPattern.FindStringSubmatch(content); match != nil {
+		flag = match[1]
+		content = strings.TrimSpace(content[len(match[0]):])
+		if content == "" {
+			return Binding{}, fmt.Errorf("empty binding after flag: %s", placeholder)
+		}
+	}
+
 	// Check if it's a value binding: [val1,val2,...]
 	if strings.HasPrefix(content, "[") && strings.HasSuffix(content, "]") {
 		inner := content[1 : len(content)-1]
@@ -75,17 +101,31 @@ func parseContent(content, placeholder string) (Binding, error) {
 			values[i] = strings.TrimSpace(v)
 		}
 
-		// Check for empty values
+		// Check for ... (custom input marker) and remove it from values
+		allowCustom := false
+		var filteredValues []string
 		for _, v := range values {
-			if v == "" {
+			if v == "..." {
+				allowCustom = true
+			} else if v == "" {
 				return Binding{}, fmt.Errorf("value binding contains empty value: %s", placeholder)
+			} else {
+				filteredValues = append(filteredValues, v)
 			}
+		}
+
+		// If only ... was specified, allow custom but no predefined values
+		if len(filteredValues) == 0 && !allowCustom {
+			return Binding{}, fmt.Errorf("value binding cannot be empty: %s", placeholder)
 		}
 
 		return Binding{
 			Type:        BindingValues,
-			Values:      values,
+			Values:      filteredValues,
 			Placeholder: placeholder,
+			Optional:    optional,
+			Flag:        flag,
+			AllowCustom: allowCustom,
 		}, nil
 	}
 
@@ -122,6 +162,8 @@ func parseContent(content, placeholder string) (Binding, error) {
 		Path:        path,
 		Filter:      filter,
 		Placeholder: placeholder,
+		Optional:    optional,
+		Flag:        flag,
 	}, nil
 }
 
@@ -231,7 +273,15 @@ func HasBindings(command string) bool {
 // ExtractPromptContext tries to extract context for the picker prompt
 // Returns something like "Select file for --config" or "Select value for --env"
 func ExtractPromptContext(command string, b Binding) string {
-	// Find the position of this placeholder
+	// If binding has an explicit flag, use it
+	if b.Flag != "" {
+		if b.Type == BindingDirectory {
+			return fmt.Sprintf("Select file for %s [%s]:", b.Flag, b.Path)
+		}
+		return fmt.Sprintf("Select value for %s:", b.Flag)
+	}
+
+	// Otherwise, find the position of this placeholder and look backwards for a flag
 	idx := strings.Index(command, b.Placeholder)
 	if idx == -1 {
 		return defaultPrompt(b)
@@ -261,4 +311,26 @@ func defaultPrompt(b Binding) string {
 		return fmt.Sprintf("Select file [%s]:", b.Path)
 	}
 	return "Select value:"
+}
+
+// RemoveWithFlag removes the binding placeholder and its associated flag from the command
+// Used when user skips an optional binding
+func RemoveWithFlag(command string, b Binding) string {
+	// If binding has a flag, remove both flag and placeholder
+	if b.Flag != "" {
+		// Pattern: flag + optional space/= + placeholder
+		// Examples: "--debug {%...%}", "--config={%...%}"
+		pattern := regexp.QuoteMeta(b.Flag) + `\s*=?\s*` + regexp.QuoteMeta(b.Placeholder)
+		re := regexp.MustCompile(pattern)
+		result := re.ReplaceAllString(command, "")
+		// Clean up any double spaces
+		result = regexp.MustCompile(`\s+`).ReplaceAllString(result, " ")
+		return strings.TrimSpace(result)
+	}
+
+	// No flag, just remove the placeholder
+	result := strings.Replace(command, b.Placeholder, "", 1)
+	// Clean up any double spaces
+	result = regexp.MustCompile(`\s+`).ReplaceAllString(result, " ")
+	return strings.TrimSpace(result)
 }

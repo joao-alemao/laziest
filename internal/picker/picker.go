@@ -3,9 +3,28 @@ package picker
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"golang.org/x/term"
 )
+
+// PickAction represents the action taken in the picker
+type PickAction int
+
+const (
+	ActionCancel PickAction = iota
+	ActionSelect
+	ActionSelectWithExtra
+	ActionSkip
+	ActionCustom
+)
+
+// PickResult represents the result of a picker interaction
+type PickResult struct {
+	Action PickAction
+	Value  string // Selected value (empty if cancelled/skipped)
+	Extra  string // Extra args if ActionSelectWithExtra
+}
 
 // Item represents a selectable item in the picker
 type Item struct {
@@ -14,14 +33,10 @@ type Item struct {
 }
 
 // Pick displays an interactive picker and returns the selected item
-// Returns nil if user cancels (q, Esc, or Ctrl+C)
-func Pick(items []Item, prompt string) *Item {
+// Returns PickResult with action (Cancel, Select, or SelectWithExtra)
+func Pick(items []Item, prompt string) PickResult {
 	if len(items) == 0 {
-		return nil
-	}
-
-	if len(items) == 1 {
-		return &items[0]
+		return PickResult{Action: ActionCancel}
 	}
 
 	// Get terminal file descriptor
@@ -31,14 +46,14 @@ func Pick(items []Item, prompt string) *Item {
 	if !term.IsTerminal(fd) {
 		// Not a terminal, can't show interactive picker
 		fmt.Fprintln(os.Stderr, "Cannot show interactive picker: not a terminal")
-		return nil
+		return PickResult{Action: ActionCancel}
 	}
 
 	// Save terminal state and enable raw mode
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to enable raw mode: %v\n", err)
-		return nil
+		return PickResult{Action: ActionCancel}
 	}
 	defer term.Restore(fd, oldState)
 
@@ -58,7 +73,7 @@ func Pick(items []Item, prompt string) *Item {
 	for {
 		n, err := os.Stdin.Read(buf)
 		if err != nil {
-			return nil
+			return PickResult{Action: ActionCancel}
 		}
 
 		if n == 0 {
@@ -69,15 +84,32 @@ func Pick(items []Item, prompt string) *Item {
 		switch {
 		case buf[0] == 'q', buf[0] == 27 && n == 1: // q or Esc
 			clearLines(len(items) + 2)
-			return nil
+			return PickResult{Action: ActionCancel}
 
 		case buf[0] == 3: // Ctrl+C
 			clearLines(len(items) + 2)
-			return nil
+			return PickResult{Action: ActionCancel}
+
+		case buf[0] == 'e', buf[0] == 'E': // e - extra args
+			clearLines(len(items) + 2)
+			extra := PromptInput("Extra arguments: ")
+			if extra == "" {
+				// User cancelled extra input, go back to picker
+				render(items, selected, maxNameLen, prompt)
+				continue
+			}
+			return PickResult{
+				Action: ActionSelectWithExtra,
+				Value:  items[selected].Name,
+				Extra:  extra,
+			}
 
 		case buf[0] == 13 || buf[0] == 10: // Enter
 			clearLines(len(items) + 2)
-			return &items[selected]
+			return PickResult{
+				Action: ActionSelect,
+				Value:  items[selected].Name,
+			}
 
 		case buf[0] == 'k', buf[0] == 'K': // k - up
 			if selected > 0 {
@@ -126,7 +158,7 @@ func render(items []Item, selected int, maxNameLen int, prompt string) {
 	}
 
 	// Print help
-	fmt.Printf("\033[2m  [↑/↓/j/k] navigate  [Enter] select  [q/Esc] cancel\033[0m")
+	fmt.Printf("\033[2m  [↑/↓/j/k] navigate  [Enter] select  [e] extra args  [q/Esc] cancel\033[0m")
 }
 
 // clearLines moves cursor up and clears lines
@@ -141,14 +173,37 @@ func clearLines(n int) {
 }
 
 // PickString displays an interactive picker for a list of strings
-// Returns the selected string or nil if user cancels
-func PickString(items []string, prompt string) *string {
-	if len(items) == 0 {
-		return nil
+// Returns PickResult with action (Cancel, Select, Skip, or Custom)
+func PickString(items []string, prompt string, optional bool, allowCustom bool) PickResult {
+	// If allowCustom with no predefined values, go straight to input
+	if allowCustom && len(items) == 0 {
+		value := PromptInput(prompt + " ")
+		if value == "" {
+			if optional {
+				return PickResult{Action: ActionSkip}
+			}
+			return PickResult{Action: ActionCancel}
+		}
+		return PickResult{Action: ActionCustom, Value: value}
 	}
 
-	if len(items) == 1 {
-		return &items[0]
+	if len(items) == 0 {
+		return PickResult{Action: ActionCancel}
+	}
+
+	// Build display items with special options
+	displayItems := make([]string, 0, len(items)+2)
+	skipOffset := 0
+
+	if optional {
+		displayItems = append(displayItems, "[Skip]")
+		skipOffset = 1
+	}
+
+	displayItems = append(displayItems, items...)
+
+	if allowCustom {
+		displayItems = append(displayItems, "[Custom]")
 	}
 
 	// Get terminal file descriptor
@@ -157,28 +212,28 @@ func PickString(items []string, prompt string) *string {
 	// Check if we're in a terminal
 	if !term.IsTerminal(fd) {
 		fmt.Fprintln(os.Stderr, "Cannot show interactive picker: not a terminal")
-		return nil
+		return PickResult{Action: ActionCancel}
 	}
 
 	// Save terminal state and enable raw mode
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to enable raw mode: %v\n", err)
-		return nil
+		return PickResult{Action: ActionCancel}
 	}
 	defer term.Restore(fd, oldState)
 
 	selected := 0
 
 	// Initial render
-	renderStrings(items, selected, prompt)
+	renderStrings(displayItems, selected, prompt, optional, allowCustom)
 
 	// Input loop
 	buf := make([]byte, 3)
 	for {
 		n, err := os.Stdin.Read(buf)
 		if err != nil {
-			return nil
+			return PickResult{Action: ActionCancel}
 		}
 
 		if n == 0 {
@@ -188,27 +243,64 @@ func PickString(items []string, prompt string) *string {
 		// Handle input
 		switch {
 		case buf[0] == 'q', buf[0] == 27 && n == 1: // q or Esc
-			clearLines(len(items) + 2)
-			return nil
+			clearLines(len(displayItems) + 2)
+			return PickResult{Action: ActionCancel}
 
 		case buf[0] == 3: // Ctrl+C
-			clearLines(len(items) + 2)
-			return nil
+			clearLines(len(displayItems) + 2)
+			return PickResult{Action: ActionCancel}
+
+		case buf[0] == 's', buf[0] == 'S': // s - skip (only for optional)
+			if optional {
+				clearLines(len(displayItems) + 2)
+				return PickResult{Action: ActionSkip}
+			}
+
+		case buf[0] == 'c', buf[0] == 'C': // c - custom input (only if allowCustom)
+			if allowCustom {
+				clearLines(len(displayItems) + 2)
+				value := PromptInput(prompt + " ")
+				if value == "" {
+					// User cancelled, go back to picker
+					renderStrings(displayItems, selected, prompt, optional, allowCustom)
+					continue
+				}
+				return PickResult{Action: ActionCustom, Value: value}
+			}
 
 		case buf[0] == 13 || buf[0] == 10: // Enter
-			clearLines(len(items) + 2)
-			return &items[selected]
+			clearLines(len(displayItems) + 2)
+			// Check if [Skip] was selected
+			if optional && selected == 0 {
+				return PickResult{Action: ActionSkip}
+			}
+			// Check if [Custom] was selected
+			if allowCustom && selected == len(displayItems)-1 {
+				value := PromptInput(prompt + " ")
+				if value == "" {
+					// User cancelled, go back to picker
+					renderStrings(displayItems, selected, prompt, optional, allowCustom)
+					continue
+				}
+				return PickResult{Action: ActionCustom, Value: value}
+			}
+			// Return the actual item (accounting for skip offset)
+			actualIndex := selected - skipOffset
+			return PickResult{
+				Action: ActionSelect,
+				Value:  items[actualIndex],
+			}
 
 		case buf[0] == 'k', buf[0] == 'K': // k - up
 			if selected > 0 {
 				selected--
-				renderStrings(items, selected, prompt)
+				renderStrings(displayItems, selected, prompt, optional, allowCustom)
 			}
 
 		case buf[0] == 'j', buf[0] == 'J': // j - down
-			if selected < len(items)-1 {
+			if selected < len(displayItems)-1 {
 				selected++
-				renderStrings(items, selected, prompt)
+				renderStrings(displayItems, selected, prompt, optional, allowCustom)
 			}
 
 		case n == 3 && buf[0] == 27 && buf[1] == 91: // Arrow keys
@@ -216,12 +308,12 @@ func PickString(items []string, prompt string) *string {
 			case 65: // Up
 				if selected > 0 {
 					selected--
-					renderStrings(items, selected, prompt)
+					renderStrings(displayItems, selected, prompt, optional, allowCustom)
 				}
 			case 66: // Down
-				if selected < len(items)-1 {
+				if selected < len(displayItems)-1 {
 					selected++
-					renderStrings(items, selected, prompt)
+					renderStrings(displayItems, selected, prompt, optional, allowCustom)
 				}
 			}
 		}
@@ -229,7 +321,7 @@ func PickString(items []string, prompt string) *string {
 }
 
 // renderStrings draws the picker UI for string items
-func renderStrings(items []string, selected int, prompt string) {
+func renderStrings(items []string, selected int, prompt string, optional bool, allowCustom bool) {
 	// Move cursor to start and clear
 	clearLines(len(items) + 2)
 
@@ -245,6 +337,78 @@ func renderStrings(items []string, selected int, prompt string) {
 		}
 	}
 
-	// Print help
-	fmt.Printf("\033[2m  [↑/↓/j/k] navigate  [Enter] select  [q/Esc] cancel\033[0m")
+	// Build help line based on available options
+	helpParts := []string{"[↑/↓/j/k] navigate", "[Enter] select"}
+	if allowCustom {
+		helpParts = append(helpParts, "[c] custom")
+	}
+	if optional {
+		helpParts = append(helpParts, "[s] skip")
+	}
+	helpParts = append(helpParts, "[q/Esc] cancel")
+
+	fmt.Printf("\033[2m  %s\033[0m", strings.Join(helpParts, "  "))
+}
+
+// PromptInput displays a simple inline input prompt and returns the user's input
+// Returns empty string if user cancels (Esc or Ctrl+C)
+func PromptInput(prompt string) string {
+	fd := int(os.Stdin.Fd())
+
+	// Check if we're in a terminal
+	if !term.IsTerminal(fd) {
+		fmt.Fprintln(os.Stderr, "Cannot show input prompt: not a terminal")
+		return ""
+	}
+
+	// Save terminal state and enable raw mode
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to enable raw mode: %v\n", err)
+		return ""
+	}
+	defer term.Restore(fd, oldState)
+
+	fmt.Printf("%s", prompt)
+
+	var input []rune
+	buf := make([]byte, 3)
+
+	for {
+		n, err := os.Stdin.Read(buf)
+		if err != nil {
+			fmt.Println()
+			return ""
+		}
+
+		if n == 0 {
+			continue
+		}
+
+		switch {
+		case buf[0] == 27 && n == 1: // Esc
+			fmt.Println()
+			return ""
+
+		case buf[0] == 3: // Ctrl+C
+			fmt.Println()
+			return ""
+
+		case buf[0] == 13 || buf[0] == 10: // Enter
+			fmt.Println()
+			return string(input)
+
+		case buf[0] == 127: // Backspace
+			if len(input) > 0 {
+				input = input[:len(input)-1]
+				// Clear line and reprint
+				fmt.Print("\r\033[K")
+				fmt.Printf("%s%s", prompt, string(input))
+			}
+
+		case buf[0] >= 32 && buf[0] < 127: // Printable ASCII
+			input = append(input, rune(buf[0]))
+			fmt.Printf("%c", buf[0])
+		}
+	}
 }

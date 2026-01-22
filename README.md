@@ -44,6 +44,23 @@ This adds a source line to your shell rc file that loads aliases from `~/.config
 
 ## Usage
 
+### Interactive Picker (Default)
+
+Simply run `laziest` or `laziest list` to launch an interactive picker:
+
+```bash
+laziest              # Interactive picker with all commands
+laziest list -t Git  # Interactive picker filtered by tag
+```
+
+**Picker keys:**
+- `↑/↓` or `j/k` - Navigate
+- `Enter` - Select and run command
+- `e` - Add extra arguments, then run
+- `c` - Enter custom value (when `...` in binding)
+- `s` - Skip optional binding
+- `q` or `Esc` - Cancel
+
 ### Add commands
 
 ```bash
@@ -55,26 +72,12 @@ laziest add gs "git status" -t Git
 echo "kubectl get pods" | laziest add kgp -t K8s
 ```
 
-### List commands
-
-```bash
-laziest              # List all commands with tags
-laziest list -t Git  # Filter by tag
-```
-
-Example output:
-
-```
-  train_model  [ModelTraining, FlowCreation]  python train.py
-  gs           [Git]                          git status
-  kgp          [K8s]                          kubectl get pods
-```
-
 ### Run commands
 
 ```bash
-laziest run gs              # Run by name
-laziest run -t ModelTraining  # Interactive picker if multiple matches
+laziest run gs                          # Run by name
+laziest run train_model --extra --verbose  # Run with extra args
+laziest run -t ModelTraining            # Interactive picker if multiple matches
 ```
 
 ### Manage tags
@@ -138,13 +141,61 @@ laziest add deploy "kubectl apply --dry-run={%[none,client,server]%}" -t K8s
 laziest add train "python train.py --use-gpu {%[True,False]%}" -t ML
 ```
 
+### Custom Input Binding
+
+Add `...` to a value binding to allow custom user input in addition to predefined values:
+
+```bash
+# Predefined values + custom input option
+laziest add epochs "python train.py --epochs {%[10,50,100,...]%}" -t ML
+
+# Custom input only (no predefined values)
+laziest add msg "echo {%[...]%}" -t Util
+```
+
+When running commands with custom input bindings:
+- A `[Custom]` option appears at the end of the picker
+- Press `c` to enter a custom value
+- Or select `[Custom]` and press Enter
+
+### Optional Bindings
+
+Mark bindings as optional with `?` prefix. Optional bindings can be skipped:
+
+```bash
+# Optional value binding with flag
+laziest add train "python train.py {%?--debug:[True,False]%}" -t ML
+
+# Optional directory binding
+laziest add build "docker build {%?--platform:/platforms:*.txt%} ." -t Docker
+```
+
+When running commands with optional bindings:
+- A `[Skip]` option appears in the picker
+- Press `s` to skip the binding
+- Skipping removes both the flag and the placeholder
+
 ### Multiple Bindings
 
 Commands can have multiple bindings - pickers appear in sequence:
 
 ```bash
-laziest add train "python train.py --config {%/configs:*.yaml%} --gpu {%[True,False]%}" -t ML
+laziest add train "python train.py --config {%/configs:*.yaml%} {%?--debug:[True,False]%}" -t ML
 ```
+
+### Extra Arguments
+
+Append additional arguments to any command at runtime:
+
+```bash
+# Via --extra flag
+laziest run train --extra --verbose --epochs 100
+
+# Via 'e' key in interactive picker
+laziest       # Press 'e', then type extra args
+```
+
+Extra arguments are always appended to the end of the resolved command.
 
 ### Shell Aliases for Bound Commands
 
@@ -159,24 +210,36 @@ $ train
 Select file for --config [/path/to/configs]:
 > model_v1.yaml
   model_v2.yaml
+
+Select value for --debug:
+  [Skip]
+> True
+  False
+
+Extra arguments: --verbose
 ...
 ```
 
 ## Examples
 
 ```bash
-# DevOps workflow
-laziest add deploy "kubectl apply -f deploy/" -t K8s,Deploy
+# DevOps workflow with optional debug flag
+laziest add deploy "kubectl apply -f deploy/ {%?--dry-run:[client,server]%}" -t K8s,Deploy
 laziest add logs "kubectl logs -f deployment/app" -t K8s,Debug
 
-# ML workflow
-laziest add train "python train.py --config config.yaml" -t ML,Training
+# ML workflow with bindings and extra args
+laziest add train "python train.py --config {%/configs:*.yaml%} {%?--debug:[True,False]%}" -t ML,Training
 laziest add eval "python eval.py --checkpoint latest" -t ML,Eval
+laziest run train --extra --epochs 100  # Add extra args
+
+# Custom input for epochs with preset suggestions
+laziest add epochs "python train.py --epochs {%[10,50,100,...]%}" -t ML
 
 # Git shortcuts
 laziest add gs "git status" -t Git
 laziest add gp "git push origin HEAD" -t Git
 
-# Run all ML commands via picker
-laziest run -t ML
+# Interactive picker workflows
+laziest           # Pick any command
+laziest list -t ML  # Pick from ML commands only
 ```
