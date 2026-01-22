@@ -233,134 +233,161 @@ func cmdInteractiveList(filterTags []string) {
 		return
 	}
 
-	// Filter commands if tag specified
-	var commands []config.Command
-	if len(filterTags) > 0 {
-		// Get commands matching any of the filter tags
-		seen := make(map[string]bool)
-		for _, tag := range filterTags {
-			for _, cmd := range cfg.GetCommandsByTag(tag) {
-				if !seen[cmd.Name] {
-					seen[cmd.Name] = true
-					commands = append(commands, cmd)
+	for {
+		// Filter commands if tag specified
+		var commands []config.Command
+		if len(filterTags) > 0 {
+			// Get commands matching any of the filter tags
+			seen := make(map[string]bool)
+			for _, tag := range filterTags {
+				for _, cmd := range cfg.GetCommandsByTag(tag) {
+					if !seen[cmd.Name] {
+						seen[cmd.Name] = true
+						commands = append(commands, cmd)
+					}
 				}
 			}
+			if len(commands) == 0 {
+				fmt.Printf("No commands found with tag(s): %s\n", strings.Join(filterTags, ", "))
+				return
+			}
+		} else {
+			commands = cfg.Commands
 		}
+
 		if len(commands) == 0 {
-			fmt.Printf("No commands found with tag(s): %s\n", strings.Join(filterTags, ", "))
+			fmt.Println("No commands left.")
 			return
 		}
-	} else {
-		commands = cfg.Commands
-	}
 
-	// Build picker items
-	items := make([]picker.Item, len(commands))
-	for i, cmd := range commands {
-		items[i] = picker.Item{Name: cmd.Name, Command: cmd.Command}
-	}
+		// Build picker items
+		items := make([]picker.Item, len(commands))
+		for i, cmd := range commands {
+			items[i] = picker.Item{Name: cmd.Name, Command: cmd.Command, Tags: cmd.Tags}
+		}
 
-	// Show picker
-	var promptStr string
-	if len(filterTags) > 0 {
-		promptStr = fmt.Sprintf("Select command [%s]:", strings.Join(filterTags, ", "))
-	} else {
-		promptStr = "Select command:"
-	}
+		// Show picker
+		var promptStr string
+		if len(filterTags) > 0 {
+			promptStr = fmt.Sprintf("Select command [%s]:", strings.Join(filterTags, ", "))
+		} else {
+			promptStr = "Select command:"
+		}
 
-	result := picker.Pick(items, promptStr)
-	if result.Action == picker.ActionCancel {
-		return
-	}
+		result := picker.Pick(items, promptStr)
 
-	// Get the selected command
-	cmd, err := cfg.GetCommandByName(result.Value)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Resolve bindings and run
-	finalCommand := cmd.Command
-	extraArgs := ""
-
-	// Handle extra args from picker
-	if result.Action == picker.ActionSelectWithExtra {
-		extraArgs = result.Extra
-	}
-
-	// Parse and resolve any bindings
-	bindings, err := binding.Parse(cmd.Command)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing bindings: %v\n", err)
-		os.Exit(1)
-	}
-
-	for _, b := range bindings {
-		var selected string
-		prompt := binding.ExtractPromptContext(finalCommand, b)
-
-		if b.Type == binding.BindingDirectory {
-			// List files and show picker
-			files, err := binding.ListFiles(b)
-			if err != nil {
+		// Handle delete action
+		if result.Action == picker.ActionDelete {
+			if err := cfg.RemoveCommandByName(result.Value); err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)
 			}
-
-			bindResult := picker.PickString(files, prompt, b.Optional, false)
-			if bindResult.Action == picker.ActionCancel {
-				os.Exit(0) // User cancelled
+			if err := cfg.Save(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+				os.Exit(1)
 			}
-			if bindResult.Action == picker.ActionSkip {
-				// Remove binding and flag from command
-				finalCommand = binding.RemoveWithFlag(finalCommand, b)
-				continue
+			if err := shell.UpdateAliases(cfg); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
 			}
-			// Use absolute path
-			selected = binding.GetAbsolutePath(b, bindResult.Value)
-
-		} else { // BindingValues
-			bindResult := picker.PickString(b.Values, prompt, b.Optional, b.AllowCustom)
-			if bindResult.Action == picker.ActionCancel {
-				os.Exit(0) // User cancelled
-			}
-			if bindResult.Action == picker.ActionSkip {
-				// Remove binding and flag from command
-				finalCommand = binding.RemoveWithFlag(finalCommand, b)
-				continue
-			}
-			selected = bindResult.Value
+			fmt.Printf("Deleted '%s'\n", result.Value)
+			// Loop back to picker
+			continue
 		}
 
-		finalCommand = binding.Resolve(finalCommand, b, selected)
-	}
-
-	// Append extra args if provided
-	if extraArgs != "" {
-		finalCommand = finalCommand + " " + extraArgs
-	}
-
-	fmt.Printf("Running: %s\n", finalCommand)
-	fmt.Println(strings.Repeat("-", 40))
-
-	// Determine which shell to use
-	shellPath := os.Getenv("SHELL")
-	if shellPath == "" {
-		shellPath = "/bin/sh"
-	}
-
-	execCmd := exec.Command(shellPath, "-c", finalCommand)
-	execCmd.Stdin = os.Stdin
-	execCmd.Stdout = os.Stdout
-	execCmd.Stderr = os.Stderr
-
-	if err := execCmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			os.Exit(exitErr.ExitCode())
+		if result.Action == picker.ActionCancel {
+			return
 		}
-		fmt.Fprintf(os.Stderr, "Error executing command: %v\n", err)
-		os.Exit(1)
+
+		// Get the selected command
+		cmd, err := cfg.GetCommandByName(result.Value)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Resolve bindings and run
+		finalCommand := cmd.Command
+		extraArgs := ""
+
+		// Handle extra args from picker
+		if result.Action == picker.ActionSelectWithExtra {
+			extraArgs = result.Extra
+		}
+
+		// Parse and resolve any bindings
+		bindings, err := binding.Parse(cmd.Command)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing bindings: %v\n", err)
+			os.Exit(1)
+		}
+
+		for _, b := range bindings {
+			var selected string
+			prompt := binding.ExtractPromptContext(finalCommand, b)
+
+			if b.Type == binding.BindingDirectory {
+				// List files and show picker
+				files, err := binding.ListFiles(b)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+					os.Exit(1)
+				}
+
+				bindResult := picker.PickString(files, prompt, b.Optional, false)
+				if bindResult.Action == picker.ActionCancel {
+					os.Exit(0) // User cancelled
+				}
+				if bindResult.Action == picker.ActionSkip {
+					// Remove binding and flag from command
+					finalCommand = binding.RemoveWithFlag(finalCommand, b)
+					continue
+				}
+				// Use absolute path
+				selected = binding.GetAbsolutePath(b, bindResult.Value)
+
+			} else { // BindingValues
+				bindResult := picker.PickString(b.Values, prompt, b.Optional, b.AllowCustom)
+				if bindResult.Action == picker.ActionCancel {
+					os.Exit(0) // User cancelled
+				}
+				if bindResult.Action == picker.ActionSkip {
+					// Remove binding and flag from command
+					finalCommand = binding.RemoveWithFlag(finalCommand, b)
+					continue
+				}
+				selected = bindResult.Value
+			}
+
+			finalCommand = binding.Resolve(finalCommand, b, selected)
+		}
+
+		// Append extra args if provided
+		if extraArgs != "" {
+			finalCommand = finalCommand + " " + extraArgs
+		}
+
+		fmt.Printf("Running: %s\n", finalCommand)
+		fmt.Println(strings.Repeat("-", 40))
+
+		// Determine which shell to use
+		shellPath := os.Getenv("SHELL")
+		if shellPath == "" {
+			shellPath = "/bin/sh"
+		}
+
+		execCmd := exec.Command(shellPath, "-c", finalCommand)
+		execCmd.Stdin = os.Stdin
+		execCmd.Stdout = os.Stdout
+		execCmd.Stderr = os.Stderr
+
+		if err := execCmd.Run(); err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				os.Exit(exitErr.ExitCode())
+			}
+			fmt.Fprintf(os.Stderr, "Error executing command: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 }
 
@@ -483,33 +510,55 @@ func cmdRun(args []string) {
 
 	// If tag specified, filter and possibly show picker
 	if len(tags) > 0 {
-		// Get commands matching the tag
-		var matches []config.Command
-		seen := make(map[string]bool)
-		for _, tag := range tags {
-			for _, c := range cfg.GetCommandsByTag(tag) {
-				if !seen[c.Name] {
-					seen[c.Name] = true
-					matches = append(matches, c)
+		for {
+			// Get commands matching the tag
+			var matches []config.Command
+			seen := make(map[string]bool)
+			for _, tag := range tags {
+				for _, c := range cfg.GetCommandsByTag(tag) {
+					if !seen[c.Name] {
+						seen[c.Name] = true
+						matches = append(matches, c)
+					}
 				}
 			}
-		}
 
-		if len(matches) == 0 {
-			fmt.Fprintf(os.Stderr, "No commands found with tag(s): %s\n", strings.Join(tags, ", "))
-			os.Exit(1)
-		}
+			if len(matches) == 0 {
+				fmt.Fprintf(os.Stderr, "No commands found with tag(s): %s\n", strings.Join(tags, ", "))
+				os.Exit(1)
+			}
 
-		if len(matches) == 1 {
-			cmd = &matches[0]
-		} else {
+			if len(matches) == 1 {
+				cmd = &matches[0]
+				break
+			}
+
 			// Show picker
 			items := make([]picker.Item, len(matches))
 			for i, m := range matches {
-				items[i] = picker.Item{Name: m.Name, Command: m.Command}
+				items[i] = picker.Item{Name: m.Name, Command: m.Command, Tags: m.Tags}
 			}
 
 			result := picker.Pick(items, fmt.Sprintf("Select command [%s]:", strings.Join(tags, ", ")))
+
+			// Handle delete action
+			if result.Action == picker.ActionDelete {
+				if err := cfg.RemoveCommandByName(result.Value); err != nil {
+					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+					os.Exit(1)
+				}
+				if err := cfg.Save(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+					os.Exit(1)
+				}
+				if err := shell.UpdateAliases(cfg); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+				}
+				fmt.Printf("Deleted '%s'\n", result.Value)
+				// Loop back to picker
+				continue
+			}
+
 			if result.Action == picker.ActionCancel {
 				os.Exit(0) // User cancelled
 			}
@@ -525,6 +574,7 @@ func cmdRun(args []string) {
 
 			// Find the selected command
 			cmd, _ = cfg.GetCommandByName(result.Value)
+			break
 		}
 	} else if len(remaining) > 0 {
 		// Run by name
