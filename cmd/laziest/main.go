@@ -12,7 +12,7 @@ import (
 	"laziest/internal/shell"
 )
 
-const version = "0.2.0"
+var version = "dev"
 
 func main() {
 	if len(os.Args) < 2 {
