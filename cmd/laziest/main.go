@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"laziest/internal/binding"
+	"laziest/internal/builder"
 	"laziest/internal/config"
 	"laziest/internal/picker"
 	"laziest/internal/shell"
@@ -29,6 +30,8 @@ func main() {
 		cmdInteractiveList(tags)
 	case "add", "a":
 		cmdAdd(os.Args[2:])
+	case "add-easy", "ae":
+		cmdAddEasy(os.Args[2:])
 	case "run", "r":
 		cmdRun(os.Args[2:])
 	case "remove", "rm":
@@ -55,6 +58,7 @@ Usage:
   laziest                      Interactive command picker
   laziest list [-t <tag>]      Interactive picker, optionally filter by tag
   laziest add <name> <cmd> [-t <tags>]  Add a new command
+  laziest add-easy "<cmd>"     Interactive command builder from example
   laziest run <name> [--extra <args>]   Run command by name
   laziest run -t <tag> [--extra <args>] Pick and run a command with that tag
   laziest remove <name>        Remove a command
@@ -66,6 +70,15 @@ Usage:
 Adding commands:
   laziest add deploy "kubectl apply -f ." -t DevOps,K8s
   echo "git status" | laziest add gs -t Git
+
+Easy mode (interactive builder):
+  laziest add-easy "python train.py --config /configs/model.yaml --epochs 100"
+  
+  Walks through each flag and asks how to handle it:
+  - Keep static: Flag value stays as-is
+  - Directory picker: Browse and select a path at runtime
+  - Value list: Choose from predefined options at runtime
+  - Optional boolean: Include or skip the flag at runtime
 
 Tags:
   - Comma-separated, no spaces: -t Tag1,Tag2
@@ -100,6 +113,7 @@ Examples:
   laziest add deploy "kubectl apply --dry-run={%[none,client,server]%}" -t K8s
   laziest add debug "python train.py {%?--debug:[True,False]%}" -t ML
   laziest add epochs "python train.py --epochs {%[10,50,100,...]%}" -t ML
+  laziest add-easy "python train.py --config /configs/model.yaml --epochs 100"
   laziest run gs
   laziest run train --extra --verbose
   laziest run -t ML
@@ -518,6 +532,98 @@ func cmdAdd(args []string) {
 	}
 
 	fmt.Printf("Added '%s': %s\n", name, command)
+	if len(tags) > 0 {
+		fmt.Printf("Tags: %s\n", strings.Join(tags, ", "))
+	}
+}
+
+func cmdAddEasy(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "Error: example command required")
+		fmt.Fprintln(os.Stderr, "Usage: laziest add-easy \"<example command>\"")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Example:")
+		fmt.Fprintln(os.Stderr, "  laziest add-easy \"python train.py --config /configs/model.yaml --epochs 100\"")
+		os.Exit(1)
+	}
+
+	// Join args as the example command (handles both quoted and unquoted input)
+	exampleCmd := strings.Join(args, " ")
+
+	// Run interactive builder
+	result := builder.BuildCommand(exampleCmd)
+	if result.Cancelled {
+		fmt.Println("Cancelled.")
+		return
+	}
+
+	// Display the generated command
+	fmt.Println(strings.Repeat("-", 40))
+	fmt.Printf("\033[1mGenerated command:\033[0m\n  %s\n\n", result.Command)
+
+	// Validate bindings in command
+	bindings, err := binding.Parse(result.Command)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Warn about any issues with bindings
+	for _, b := range bindings {
+		for _, warning := range binding.Validate(b) {
+			fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
+		}
+	}
+
+	// Prompt for name
+	name := picker.PromptInput("Command name: ")
+	if name == "" {
+		fmt.Println("Cancelled.")
+		return
+	}
+
+	// Validate name
+	if !isValidAliasName(name) {
+		fmt.Fprintf(os.Stderr, "Error: invalid alias name '%s'\n", name)
+		fmt.Fprintln(os.Stderr, "Name must start with a letter and contain only letters, numbers, and underscores")
+		os.Exit(1)
+	}
+
+	// Prompt for tags
+	tagsInput := picker.PromptInput("Tags (comma-separated, optional): ")
+	var tags []string
+	if tagsInput != "" {
+		for _, t := range strings.Split(tagsInput, ",") {
+			t = strings.TrimSpace(t)
+			if t != "" {
+				tags = append(tags, t)
+			}
+		}
+	}
+
+	// Load config and add command
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := cfg.AddCommand(name, result.Command, tags); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := cfg.Save(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Update alias file
+	if err := shell.UpdateAliases(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+	}
+
+	fmt.Printf("\nAdded '%s': %s\n", name, result.Command)
 	if len(tags) > 0 {
 		fmt.Printf("Tags: %s\n", strings.Join(tags, ", "))
 	}

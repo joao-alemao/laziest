@@ -15,6 +15,7 @@ type BindingType int
 const (
 	BindingDirectory BindingType = iota
 	BindingValues
+	BindingBooleanFlag // Optional flag with no value (e.g., {%?--verbose%})
 )
 
 // Binding represents a dynamic placeholder in a command
@@ -85,8 +86,33 @@ func parseContent(content, placeholder string) (Binding, error) {
 		flag = match[1]
 		content = strings.TrimSpace(content[len(match[0]):])
 		if content == "" {
-			return Binding{}, fmt.Errorf("empty binding after flag: %s", placeholder)
+			// Boolean flag binding: {%?--verbose%} -> just the flag, no value
+			// Must be optional to make sense (include or skip)
+			if !optional {
+				return Binding{}, fmt.Errorf("boolean flag binding must be optional (use ?): %s", placeholder)
+			}
+			return Binding{
+				Type:        BindingBooleanFlag,
+				Placeholder: placeholder,
+				Optional:    optional,
+				Flag:        flag,
+			}, nil
 		}
+	}
+
+	// Check for standalone flag without colon: {%?--verbose%}
+	// This handles the case where the flag doesn't have a trailing colon
+	standaloneFlag := regexp.MustCompile(`^(-{1,2}[\w-]+)$`)
+	if match := standaloneFlag.FindStringSubmatch(content); match != nil {
+		if !optional {
+			return Binding{}, fmt.Errorf("boolean flag binding must be optional (use ?): %s", placeholder)
+		}
+		return Binding{
+			Type:        BindingBooleanFlag,
+			Placeholder: placeholder,
+			Optional:    optional,
+			Flag:        match[1],
+		}, nil
 	}
 
 	// Check if it's a value binding: [val1,val2,...]
@@ -262,10 +288,16 @@ func GetAbsolutePath(b Binding, relativePath string) string {
 
 // Resolve replaces the binding placeholder with the given value in the command
 // If the binding has a flag, it outputs "flag value" (e.g., "--debug True")
+// For boolean flag bindings, it just outputs the flag itself
 func Resolve(command string, b Binding, value string) string {
-	replacement := value
-	if b.Flag != "" {
+	var replacement string
+	if b.Type == BindingBooleanFlag {
+		// Boolean flag: just output the flag itself (value is ignored)
+		replacement = b.Flag
+	} else if b.Flag != "" {
 		replacement = b.Flag + " " + value
+	} else {
+		replacement = value
 	}
 	return strings.Replace(command, b.Placeholder, replacement, 1)
 }
@@ -282,6 +314,9 @@ func ExtractPromptContext(command string, b Binding) string {
 	if b.Flag != "" {
 		if b.Type == BindingDirectory {
 			return fmt.Sprintf("Select file for %s [%s]:", b.Flag, b.Path)
+		}
+		if b.Type == BindingBooleanFlag {
+			return fmt.Sprintf("Include %s?", b.Flag)
 		}
 		return fmt.Sprintf("Select value for %s:", b.Flag)
 	}

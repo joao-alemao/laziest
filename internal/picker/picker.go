@@ -812,6 +812,139 @@ func renderStrings(items []string, selected int, prompt string, optional bool, a
 	}
 }
 
+// PickOption displays a simple picker for a list of options and returns the selected index
+// Returns -1 if cancelled
+func PickOption(prompt string, options []string) int {
+	if len(options) == 0 {
+		return -1
+	}
+
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		fmt.Fprintln(os.Stderr, "Cannot show interactive picker: not a terminal")
+		return -1
+	}
+
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to enable raw mode: %v\n", err)
+		return -1
+	}
+	defer term.Restore(fd, oldState)
+
+	selected := 0
+
+	// Initial render
+	renderOptions(options, selected, prompt, true)
+
+	buf := make([]byte, 3)
+	for {
+		n, err := os.Stdin.Read(buf)
+		if err != nil {
+			return -1
+		}
+
+		if n == 0 {
+			continue
+		}
+
+		switch {
+		case buf[0] == 'q', buf[0] == 27 && n == 1, buf[0] == 3: // q, Esc, Ctrl+C
+			clearLines(len(options) + 2)
+			return -1
+
+		case buf[0] == 13 || buf[0] == 10: // Enter
+			clearLines(len(options) + 2)
+			return selected
+
+		case buf[0] == 'k', buf[0] == 'K': // k - up
+			if selected > 0 {
+				selected--
+				renderOptions(options, selected, prompt, false)
+			}
+
+		case buf[0] == 'j', buf[0] == 'J': // j - down
+			if selected < len(options)-1 {
+				selected++
+				renderOptions(options, selected, prompt, false)
+			}
+
+		case n == 3 && buf[0] == 27 && buf[1] == 91: // Arrow keys
+			switch buf[2] {
+			case 65: // Up
+				if selected > 0 {
+					selected--
+					renderOptions(options, selected, prompt, false)
+				}
+			case 66: // Down
+				if selected < len(options)-1 {
+					selected++
+					renderOptions(options, selected, prompt, false)
+				}
+			}
+		}
+	}
+}
+
+// renderOptions renders the simple option picker UI
+func renderOptions(options []string, selected int, prompt string, firstRender bool) {
+	if !firstRender {
+		clearLines(len(options) + 2)
+	}
+
+	fmt.Printf("%s\r\n", prompt)
+
+	for i, opt := range options {
+		if i == selected {
+			fmt.Printf("  \033[7m> %s\033[0m\r\n", opt)
+		} else {
+			fmt.Printf("    %s\r\n", opt)
+		}
+	}
+
+	fmt.Printf("\033[2m  [↑/↓/j/k] navigate  [Enter] select  [q/Esc] cancel\033[0m")
+}
+
+// PromptYesNo asks a yes/no question and returns the answer
+// Returns false if cancelled
+func PromptYesNo(prompt string) (bool, bool) {
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		fmt.Fprintln(os.Stderr, "Cannot show prompt: not a terminal")
+		return false, false
+	}
+
+	oldState, err := term.MakeRaw(fd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to enable raw mode: %v\n", err)
+		return false, false
+	}
+	defer term.Restore(fd, oldState)
+
+	fmt.Printf("%s (y/n): ", prompt)
+
+	buf := make([]byte, 1)
+	for {
+		_, err := os.Stdin.Read(buf)
+		if err != nil {
+			fmt.Print("\r\n")
+			return false, false
+		}
+
+		switch buf[0] {
+		case 'y', 'Y':
+			fmt.Print("yes\r\n")
+			return true, true
+		case 'n', 'N':
+			fmt.Print("no\r\n")
+			return false, true
+		case 27, 3: // Esc, Ctrl+C
+			fmt.Print("\r\n")
+			return false, false
+		}
+	}
+}
+
 // PromptInput displays a simple inline input prompt and returns the user's input
 // Returns empty string if user cancels (Esc or Ctrl+C)
 func PromptInput(prompt string) string {

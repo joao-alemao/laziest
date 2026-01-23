@@ -82,6 +82,70 @@ laziest add gs "git status" -t Git
 echo "kubectl get pods" | laziest add kgp -t K8s
 ```
 
+### Easy Mode (Interactive Builder)
+
+Use `add-easy` to interactively convert an example command with flags into a command with dynamic bindings - no need to learn the `{%...%}` syntax:
+
+```bash
+laziest add-easy "python train.py --config /configs/model.yaml --epochs 100 --verbose"
+```
+
+This walks you through each flag:
+
+```
+Building command from: python train.py --config /configs/model.yaml --epochs 100 --verbose
+
+Base command: python train.py
+Found 3 flag(s) to configure
+
+[1/3] Flag: --config = /configs/model.yaml
+How should this flag's value be set?
+  > Keep static (always use this value)
+    Directory picker (browse and select a path)
+    Value list (choose from predefined options)
+
+[2/3] Flag: --epochs = 100
+How should this flag's value be set?
+    Keep static (always use this value)
+  > Value list (choose from predefined options)
+
+Enter values one per line. Empty line to finish.
+Tip: Add '...' as the last value to allow custom input at runtime.
+Suggested: 100
+Value: 10
+Value: 50
+Value: 100
+Value: ...
+Value: 
+Make this flag optional? (y/n): n
+
+[3/3] Flag: --verbose
+How should this flag behave?
+    Keep static (always include this flag)
+  > Make optional (choose to include or skip at runtime)
+
+----------------------------------------
+Generated command:
+  python train.py --config /configs/model.yaml --epochs {%[10,50,100,...]%} {%?--verbose%}
+
+Command name: train
+Tags (comma-separated, optional): ML,Training
+
+Added 'train': python train.py --config /configs/model.yaml --epochs {%[10,50,100,...]%} {%?--verbose%}
+Tags: ML, Training
+```
+
+Options for each flag type:
+
+**Boolean flags** (no value, e.g., `--verbose`):
+- Keep static: Always include the flag
+- Make optional: Choose to include or skip at runtime
+
+**Value flags** (e.g., `--epochs 100`):
+- Keep static: Always use this value
+- Directory picker: Browse and select a path at runtime
+- Value list: Choose from predefined options
+
 ### Run commands
 
 ```bash
