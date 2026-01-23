@@ -1,6 +1,97 @@
 # laziest
 
-Quick command aliases manager with tagging support.
+Quick command aliases manager with dynamic bindings. Convert any command into a reusable alias with interactive parameter selection.
+
+## Quick Start
+
+```bash
+# Install and setup
+laziest init
+source ~/.bashrc  # or source ~/.zshrc
+
+# Add a command interactively (recommended)
+laziest add-easy "python train.py --config /configs/model.yaml --epochs 100 --debug True"
+
+# Run it
+laziest
+```
+
+## Easy Mode: Interactive Command Builder
+
+The easiest way to add commands is `add-easy` (alias: `ae`). Just paste an example command and laziest walks you through each flag:
+
+```bash
+laziest add-easy "python train.py --config /configs/model.yaml --epochs 100 --debug True --verbose"
+```
+
+```
+Building command from: python train.py --config /configs/model.yaml --epochs 100 --debug True --verbose
+
+Base command: python train.py
+Found 4 flag(s) to configure
+
+[1/4] Flag: --config = /configs/model.yaml
+How should this flag's value be set?
+    Keep static (always use this value)
+  > Directory picker (browse and select a path)
+    Value list (choose from predefined options)
+
+Base directory [/configs]: 
+Filter pattern (e.g., *.yaml, empty for all): *.yaml
+Make this flag optional? (y/n): no
+
+[2/4] Flag: --epochs = 100
+How should this flag's value be set?
+    Keep static (always use this value)
+  > Value list (choose from predefined options)
+
+Enter values one per line. Empty line to finish.
+Tip: Add '...' as the last value to allow custom input at runtime.
+Suggested: 100
+Value: 10
+Value: 50
+Value: 100
+Value: ...
+Value: 
+Make this flag optional? (y/n): no
+
+[3/4] Flag: --debug = True
+How should this flag behave?
+    Keep static (always use True)
+  > Make dynamic (choose True/False at runtime)
+    Make optional + dynamic (choose True/False or skip entirely)
+
+[4/4] Flag: --verbose
+How should this flag behave?
+    Keep static (always include this flag)
+  > Make optional (choose to include or skip at runtime)
+
+----------------------------------------
+Generated command:
+  python train.py {%--config:/configs:*.yaml%} --epochs {%[10,50,100,...]%} {%--debug:[True,False]%} {%?--verbose%}
+
+Command name: train
+Tags (comma-separated, optional): ML,Training
+
+Added 'train': python train.py {%--config:/configs:*.yaml%} --epochs {%[10,50,100,...]%} {%--debug:[True,False]%} {%?--verbose%}
+Tags: ML, Training
+```
+
+### Flag Types and Options
+
+**Value flags** (e.g., `--epochs 100`):
+- Keep static: Always use this value
+- Directory picker: Browse and select a path at runtime
+- Value list: Choose from predefined options
+
+**True/False flags** (e.g., `--debug True`):
+- Keep static: Always use this value
+- Make dynamic: Choose True/False at runtime
+- Make optional + dynamic: Choose True/False or skip entirely
+
+**Boolean flags** (no value, e.g., `--verbose`):
+- Keep static: Always include the flag
+- Make optional: Choose to include or skip at runtime
 
 ## Installation
 
@@ -71,90 +162,28 @@ laziest list -t Git  # Interactive picker filtered by tag
 - `Enter` - Select current item
 - `Ctrl+C` - Cancel picker
 
-### Add commands
+### Add Commands Manually
+
+For simple commands or when you want full control over binding syntax:
 
 ```bash
 # Add with tags
-laziest add train_model "python train.py" -t ModelTraining,FlowCreation
+laziest add train_model "python train.py" -t ML
 laziest add gs "git status" -t Git
 
 # Pipe from stdin (useful for adding from shell history)
 echo "kubectl get pods" | laziest add kgp -t K8s
 ```
 
-### Easy Mode (Interactive Builder)
-
-Use `add-easy` to interactively convert an example command with flags into a command with dynamic bindings - no need to learn the `{%...%}` syntax:
-
-```bash
-laziest add-easy "python train.py --config /configs/model.yaml --epochs 100 --verbose"
-```
-
-This walks you through each flag:
-
-```
-Building command from: python train.py --config /configs/model.yaml --epochs 100 --verbose
-
-Base command: python train.py
-Found 3 flag(s) to configure
-
-[1/3] Flag: --config = /configs/model.yaml
-How should this flag's value be set?
-  > Keep static (always use this value)
-    Directory picker (browse and select a path)
-    Value list (choose from predefined options)
-
-[2/3] Flag: --epochs = 100
-How should this flag's value be set?
-    Keep static (always use this value)
-  > Value list (choose from predefined options)
-
-Enter values one per line. Empty line to finish.
-Tip: Add '...' as the last value to allow custom input at runtime.
-Suggested: 100
-Value: 10
-Value: 50
-Value: 100
-Value: ...
-Value: 
-Make this flag optional? (y/n): n
-
-[3/3] Flag: --verbose
-How should this flag behave?
-    Keep static (always include this flag)
-  > Make optional (choose to include or skip at runtime)
-
-----------------------------------------
-Generated command:
-  python train.py --config /configs/model.yaml --epochs {%[10,50,100,...]%} {%?--verbose%}
-
-Command name: train
-Tags (comma-separated, optional): ML,Training
-
-Added 'train': python train.py --config /configs/model.yaml --epochs {%[10,50,100,...]%} {%?--verbose%}
-Tags: ML, Training
-```
-
-Options for each flag type:
-
-**Boolean flags** (no value, e.g., `--verbose`):
-- Keep static: Always include the flag
-- Make optional: Choose to include or skip at runtime
-
-**Value flags** (e.g., `--epochs 100`):
-- Keep static: Always use this value
-- Directory picker: Browse and select a path at runtime
-- Value list: Choose from predefined options
-
-### Run commands
+### Run Commands
 
 ```bash
 laziest run gs                          # Run by name
 laziest run train_model --extra --verbose  # Run with extra args
-laziest run -t ModelTraining            # Interactive picker if multiple matches
+laziest run -t ML                       # Interactive picker if multiple matches
 ```
 
-### Modify commands
+### Modify Commands
 
 Press `m` in the interactive picker to modify a command:
 
@@ -174,7 +203,7 @@ Modified 'train_model' -> 'train_v2'
 
 All fields are optional - press Enter to keep the current value.
 
-### Delete commands
+### Delete Commands
 
 Press `x` in the interactive picker to delete a command:
 
@@ -193,7 +222,7 @@ Or use the CLI:
 laziest rm gs  # Remove by name
 ```
 
-### Manage tags
+### Manage Tags
 
 ```bash
 laziest tags  # List all tags with command counts
@@ -213,18 +242,9 @@ laziest version  # Show version
 3. `laziest init` adds a one-time source line to `.bashrc`/`.zshrc`
 4. After adding a command, it's immediately available as a shell alias (after sourcing)
 
-## Tags
+## Dynamic Bindings Reference
 
-Tags help organize commands by project or category:
-
-- Comma-separated, no spaces: `-t Tag1,Tag2`
-- Filter commands: `laziest list -t Tag`
-- Run with picker: `laziest run -t Tag` (shows interactive picker if multiple matches)
-- Tags are displayed in the picker: `command_name  [Tag1, Tag2]  actual command`
-
-## Dynamic Bindings
-
-Commands can include dynamic placeholders that prompt for selection at runtime.
+Commands can include dynamic placeholders that prompt for selection at runtime. Use `add-easy` to create these interactively, or write them manually:
 
 ### Directory Binding
 
@@ -236,6 +256,9 @@ laziest add train "python train.py --config {%/path/to/configs%}" -t ML
 
 # With extension filter
 laziest add train "python train.py --config {%/path/to/configs:*.yaml%}" -t ML
+
+# With flag inside binding
+laziest add train "python train.py {%--config:/path/to/configs:*.yaml%}" -t ML
 ```
 
 When run, shows a picker with matching files (searched recursively). The selected file's absolute path is used.
@@ -246,7 +269,7 @@ Bind a parameter to a fixed set of values:
 
 ```bash
 laziest add deploy "kubectl apply --dry-run={%[none,client,server]%}" -t K8s
-laziest add train "python train.py --use-gpu {%[True,False]%}" -t ML
+laziest add train "python train.py {%--use-gpu:[True,False]%}" -t ML
 ```
 
 ### Custom Input Binding
@@ -276,6 +299,9 @@ laziest add train "python train.py {%?--debug:[True,False]%}" -t ML
 
 # Optional directory binding
 laziest add build "docker build {%?--platform:/platforms:*.txt%} ." -t Docker
+
+# Optional boolean flag (include or skip)
+laziest add train "python train.py {%?--verbose%}" -t ML
 ```
 
 When running commands with optional bindings:
@@ -305,52 +331,35 @@ laziest       # Press 'e', then type extra args
 
 Extra arguments are always appended to the end of the resolved command.
 
-### Shell Aliases for Bound Commands
+## Tags
 
-Commands with bindings create aliases that invoke `laziest run`, so you still get the interactive pickers:
+Tags help organize commands by project or category:
 
-```bash
-# Generated alias:
-alias train='laziest run train'
-
-# Usage - just type the alias name:
-$ train
-Select file for --config [/path/to/configs]:
-> model_v1.yaml
-  model_v2.yaml
-
-Select value for --debug:
-  [Skip]
-> True
-  False
-
-Extra arguments: --verbose
-...
-```
+- Comma-separated, no spaces: `-t Tag1,Tag2`
+- Filter commands: `laziest list -t Tag`
+- Run with picker: `laziest run -t Tag` (shows interactive picker if multiple matches)
+- Tags are displayed in the picker: `command_name  [Tag1, Tag2]  actual command`
 
 ## Examples
 
 ```bash
-# DevOps workflow with optional debug flag
-laziest add deploy "kubectl apply -f deploy/ {%?--dry-run:[client,server]%}" -t K8s,Deploy
-laziest add logs "kubectl logs -f deployment/app" -t K8s,Debug
+# Add commands interactively (recommended)
+laziest add-easy "python train.py --config /configs/model.yaml --epochs 100 --debug True"
+laziest add-easy "kubectl apply -f deploy/ --dry-run server --namespace prod"
 
-# ML workflow with bindings and extra args
-laziest add train "python train.py --config {%/configs:*.yaml%} {%?--debug:[True,False]%}" -t ML,Training
-laziest add eval "python eval.py --checkpoint latest" -t ML,Eval
-laziest run train --extra --epochs 100  # Add extra args
+# Or add manually with binding syntax
+laziest add deploy "kubectl apply -f deploy/ {%?--dry-run:[client,server]%}" -t K8s
+laziest add train "python train.py --config {%/configs:*.yaml%} {%?--debug:[True,False]%}" -t ML
 
-# Custom input for epochs with preset suggestions
-laziest add epochs "python train.py --epochs {%[10,50,100,...]%}" -t ML
-
-# Git shortcuts
+# Simple aliases
 laziest add gs "git status" -t Git
 laziest add gp "git push origin HEAD" -t Git
 
-# Interactive picker workflows
-laziest           # Pick any command
-laziest list -t ML  # Pick from ML commands only
+# Run commands
+laziest                     # Interactive picker
+laziest list -t ML          # Filter by tag
+laziest run train --extra --verbose  # With extra args
 
 # Use filter to find commands quickly
-laziest           # Then press '/' and type 'git' to filter
+laziest                     # Then press '/' and type to filter
 ```
