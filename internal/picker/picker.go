@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"syscall"
+	"time"
 
 	"golang.org/x/term"
 )
@@ -832,6 +834,9 @@ func PickOption(prompt string, options []string) int {
 	}
 	defer term.Restore(fd, oldState)
 
+	// Flush any pending input from previous prompts
+	flushStdin(fd)
+
 	selected := 0
 
 	// Initial render
@@ -884,6 +889,25 @@ func PickOption(prompt string, options []string) int {
 			}
 		}
 	}
+}
+
+// flushStdin discards any pending input in stdin
+func flushStdin(fd int) {
+	// Set non-blocking mode temporarily
+	syscall.SetNonblock(fd, true)
+	defer syscall.SetNonblock(fd, false)
+
+	// Read and discard any pending bytes
+	buf := make([]byte, 256)
+	for {
+		n, _ := os.Stdin.Read(buf)
+		if n == 0 {
+			break
+		}
+	}
+
+	// Small delay to ensure buffer is clear
+	time.Sleep(10 * time.Millisecond)
 }
 
 // renderOptions renders the simple option picker UI
