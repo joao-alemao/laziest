@@ -76,9 +76,34 @@ func processFlag(flag flagparse.Flag) (string, bool) {
 
 // processBooleanFlag handles flags that have no value or True/False value
 func processBooleanFlag(flag flagparse.Flag) (string, bool) {
+	// Case 1: Pure boolean flag (no value, e.g., --verbose)
+	if flag.Value == "" {
+		options := []string{
+			"Keep static (always include this flag)",
+			"Make optional (choose to include or skip at runtime)",
+		}
+
+		idx := picker.PickOption("How should this flag behave?", options)
+		if idx == -1 {
+			return "", true // cancelled
+		}
+
+		switch idx {
+		case 0: // Static
+			return flag.Name, false
+		case 1: // Optional boolean
+			// {%?--verbose%} syntax - just the flag, removed if skipped
+			return fmt.Sprintf("{%%?%s%%}", flag.Name), false
+		}
+
+		return flag.Name, false
+	}
+
+	// Case 2: True/False value flag (e.g., --is_debug_run True)
 	options := []string{
-		"Keep static (always include this flag)",
-		"Make optional (choose to include or skip at runtime)",
+		fmt.Sprintf("Keep static (always use %s)", flag.Value),
+		"Make dynamic (choose True/False at runtime)",
+		"Make optional + dynamic (choose True/False or skip entirely)",
 	}
 
 	idx := picker.PickOption("How should this flag behave?", options)
@@ -88,16 +113,14 @@ func processBooleanFlag(flag flagparse.Flag) (string, bool) {
 
 	switch idx {
 	case 0: // Static
-		if flag.Value != "" {
-			return flag.Name + " " + flag.Value, false
-		}
-		return flag.Name, false
-	case 1: // Optional boolean
-		// {%?--verbose%} syntax - just the flag, removed if skipped
-		return fmt.Sprintf("{%%?%s%%}", flag.Name), false
+		return flag.Name + " " + flag.Value, false
+	case 1: // Dynamic True/False
+		return fmt.Sprintf("{%%%s:[True,False]%%}", flag.Name), false
+	case 2: // Optional + Dynamic
+		return fmt.Sprintf("{%%?%s:[True,False]%%}", flag.Name), false
 	}
 
-	return flag.Name, false
+	return flag.Name + " " + flag.Value, false
 }
 
 // processValueFlag handles flags that have a value
