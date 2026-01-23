@@ -320,10 +320,116 @@ func cmdInteractiveList(filterTags []string) {
 			// Use absolute path
 			selected = binding.GetAbsolutePath(b, bindResult.Value)
 
-		} else { // BindingValues
-			bindResult := picker.PickString(b.Values, prompt, b.Optional, b.AllowCustom)
-			if bindResult.Action == picker.ActionCancel {
-				os.Exit(0) // User cancelled
+		// Handle modify action
+		if result.Action == picker.ActionModify {
+			// Validate new name if changed
+			if result.NewName != result.Value {
+				if !isValidAliasName(result.NewName) {
+					fmt.Fprintf(os.Stderr, "Error: invalid alias name '%s'\n", result.NewName)
+					fmt.Fprintln(os.Stderr, "Name must start with a letter and contain only letters, numbers, and underscores")
+					continue
+				}
+				// Check for name conflict
+				if _, err := cfg.GetCommandByName(result.NewName); err == nil {
+					fmt.Fprintf(os.Stderr, "Error: command '%s' already exists\n", result.NewName)
+					continue
+				}
+			}
+
+			// Parse new tags
+			var newTags []string
+			if result.NewTags != "" {
+				for _, t := range strings.Split(result.NewTags, ",") {
+					t = strings.TrimSpace(t)
+					if t != "" {
+						newTags = append(newTags, t)
+					}
+				}
+			}
+
+			// Update the command
+			if err := cfg.UpdateCommand(result.Value, result.NewName, result.NewCommand, newTags); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				continue
+			}
+			if err := cfg.Save(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+				os.Exit(1)
+			}
+			if err := shell.UpdateAliases(cfg); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+			}
+			if result.NewName != result.Value {
+				fmt.Printf("Modified '%s' -> '%s'\n", result.Value, result.NewName)
+			} else {
+				fmt.Printf("Modified '%s'\n", result.NewName)
+			}
+			// Loop back to picker
+			continue
+		}
+
+		if result.Action == picker.ActionCancel {
+			return
+		}
+
+		// Get the selected command
+		cmd, err := cfg.GetCommandByName(result.Value)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Resolve bindings and run
+		finalCommand := cmd.Command
+		extraArgs := ""
+
+		// Handle extra args from picker
+		if result.Action == picker.ActionSelectWithExtra {
+			extraArgs = result.Extra
+		}
+
+		// Parse and resolve any bindings
+		bindings, err := binding.Parse(cmd.Command)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error parsing bindings: %v\n", err)
+			os.Exit(1)
+		}
+
+		for _, b := range bindings {
+			var selected string
+			prompt := binding.ExtractPromptContext(finalCommand, b)
+
+			if b.Type == binding.BindingDirectory {
+				// List files and show picker
+				files, err := binding.ListFiles(b)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+					os.Exit(1)
+				}
+
+				bindResult := picker.PickString(files, prompt, b.Optional, false)
+				if bindResult.Action == picker.ActionCancel {
+					os.Exit(0) // User cancelled
+				}
+				if bindResult.Action == picker.ActionSkip {
+					// Remove binding and flag from command
+					finalCommand = binding.RemoveWithFlag(finalCommand, b)
+					continue
+				}
+				// Use absolute path
+				selected = binding.GetAbsolutePath(b, bindResult.Value)
+
+			} else { // BindingValues
+				bindResult := picker.PickString(b.Values, prompt, b.Optional, b.AllowCustom)
+				if bindResult.Action == picker.ActionCancel {
+					os.Exit(0) // User cancelled
+				}
+				if bindResult.Action == picker.ActionSkip {
+					// Remove binding and flag from command
+					finalCommand = binding.RemoveWithFlag(finalCommand, b)
+					continue
+				}
+				selected = bindResult.Value
 			}
 			if bindResult.Action == picker.ActionSkip {
 				// Remove binding and flag from command
@@ -510,6 +616,73 @@ func cmdRun(args []string) {
 			}
 
 			result := picker.Pick(items, fmt.Sprintf("Select command [%s]:", strings.Join(tags, ", ")))
+
+			// Handle delete action
+			if result.Action == picker.ActionDelete {
+				if err := cfg.RemoveCommandByName(result.Value); err != nil {
+					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+					os.Exit(1)
+				}
+				if err := cfg.Save(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+					os.Exit(1)
+				}
+				if err := shell.UpdateAliases(cfg); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+				}
+				fmt.Printf("Deleted '%s'\n", result.Value)
+				// Loop back to picker
+				continue
+			}
+
+			// Handle modify action
+			if result.Action == picker.ActionModify {
+				// Validate new name if changed
+				if result.NewName != result.Value {
+					if !isValidAliasName(result.NewName) {
+						fmt.Fprintf(os.Stderr, "Error: invalid alias name '%s'\n", result.NewName)
+						fmt.Fprintln(os.Stderr, "Name must start with a letter and contain only letters, numbers, and underscores")
+						continue
+					}
+					// Check for name conflict
+					if _, err := cfg.GetCommandByName(result.NewName); err == nil {
+						fmt.Fprintf(os.Stderr, "Error: command '%s' already exists\n", result.NewName)
+						continue
+					}
+				}
+
+				// Parse new tags
+				var newTags []string
+				if result.NewTags != "" {
+					for _, t := range strings.Split(result.NewTags, ",") {
+						t = strings.TrimSpace(t)
+						if t != "" {
+							newTags = append(newTags, t)
+						}
+					}
+				}
+
+				// Update the command
+				if err := cfg.UpdateCommand(result.Value, result.NewName, result.NewCommand, newTags); err != nil {
+					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+					continue
+				}
+				if err := cfg.Save(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+					os.Exit(1)
+				}
+				if err := shell.UpdateAliases(cfg); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+				}
+				if result.NewName != result.Value {
+					fmt.Printf("Modified '%s' -> '%s'\n", result.Value, result.NewName)
+				} else {
+					fmt.Printf("Modified '%s'\n", result.NewName)
+				}
+				// Loop back to picker
+				continue
+			}
+
 			if result.Action == picker.ActionCancel {
 				os.Exit(0) // User cancelled
 			}

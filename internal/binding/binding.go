@@ -321,21 +321,24 @@ func defaultPrompt(b Binding) string {
 // RemoveWithFlag removes the binding placeholder and its associated flag from the command
 // Used when user skips an optional binding
 func RemoveWithFlag(command string, b Binding) string {
-	// If binding has a flag, remove both flag and placeholder
+	// If binding has a flag, try to remove both flag and placeholder
 	if b.Flag != "" {
 		// Pattern: flag + optional space/= + placeholder
 		// Examples: "--debug {%...%}", "--config={%...%}"
 		pattern := regexp.QuoteMeta(b.Flag) + `\s*=?\s*` + regexp.QuoteMeta(b.Placeholder)
 		re := regexp.MustCompile(pattern)
-		result := re.ReplaceAllString(command, "")
-		// Clean up any double spaces
-		result = regexp.MustCompile(`\s+`).ReplaceAllString(result, " ")
-		return strings.TrimSpace(result)
+		if re.MatchString(command) {
+			// Flag appears before placeholder - remove both
+			result := re.ReplaceAllString(command, "")
+			result = regexp.MustCompile(`\s+`).ReplaceAllString(result, " ")
+			return strings.TrimSpace(result)
+		}
+		// Flag is embedded in placeholder (e.g., {%?--flag:[values]%})
+		// Fall through to just remove the placeholder
 	}
 
-	// No flag, just remove the placeholder
+	// No flag or flag embedded in placeholder - just remove the placeholder
 	result := strings.Replace(command, b.Placeholder, "", 1)
-	// Clean up any double spaces
 	result = regexp.MustCompile(`\s+`).ReplaceAllString(result, " ")
 	return strings.TrimSpace(result)
 }

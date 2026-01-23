@@ -125,6 +125,25 @@ func (c *Config) RemoveCommandByName(name string) error {
 	return fmt.Errorf("command '%s' not found", name)
 }
 
+// UpdateCommand updates an existing command by its original name
+func (c *Config) UpdateCommand(originalName, newName, newCommand string, newTags []string) error {
+	for i, cmd := range c.Commands {
+		if cmd.Name == originalName {
+			// Validate new tags
+			for _, tag := range newTags {
+				if !IsValidTag(tag) {
+					return fmt.Errorf("invalid tag '%s': must contain only letters, numbers, and underscores", tag)
+				}
+			}
+			c.Commands[i].Name = newName
+			c.Commands[i].Command = newCommand
+			c.Commands[i].Tags = newTags
+			return nil
+		}
+	}
+	return fmt.Errorf("command '%s' not found", originalName)
+}
+
 // GetCommandByName returns a command by its name
 func (c *Config) GetCommandByName(name string) (*Command, error) {
 	for i, cmd := range c.Commands {
