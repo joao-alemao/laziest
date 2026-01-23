@@ -35,6 +35,15 @@ type PickResult struct {
 type Item struct {
 	Name    string
 	Command string
+	Tags    []string
+}
+
+// formatTagsDisplay formats tags for picker display
+func formatTagsDisplay(tags []string) string {
+	if len(tags) == 0 {
+		return "[]"
+	}
+	return "[" + strings.Join(tags, ", ") + "]"
 }
 
 // filterItems returns indices of items matching the filter text (case-insensitive)
@@ -98,7 +107,7 @@ func filterStrings(items []string, filter string) []int {
 }
 
 // Pick displays an interactive picker and returns the selected item
-// Returns PickResult with action (Cancel, Select, or SelectWithExtra)
+// Returns PickResult with action (Cancel, Select, SelectWithExtra, or Delete)
 func Pick(items []Item, prompt string) PickResult {
 	if len(items) == 0 {
 		return PickResult{Action: ActionCancel}
@@ -124,9 +133,14 @@ func Pick(items []Item, prompt string) PickResult {
 
 	selected := 0
 	maxNameLen := 0
+	maxTagLen := 0
 	for _, item := range items {
 		if len(item.Name) > maxNameLen {
 			maxNameLen = len(item.Name)
+		}
+		tagStr := formatTagsDisplay(item.Tags)
+		if len(tagStr) > maxTagLen {
+			maxTagLen = len(tagStr)
 		}
 	}
 
@@ -141,6 +155,8 @@ func Pick(items []Item, prompt string) PickResult {
 
 	// Input loop
 	buf := make([]byte, 3)
+	confirmDelete := false
+
 	for {
 		n, err := os.Stdin.Read(buf)
 		if err != nil {
