@@ -294,6 +294,54 @@ func cmdInteractiveList(filterTags []string) {
 			continue
 		}
 
+		// Handle modify action
+		if result.Action == picker.ActionModify {
+			// Validate new name if changed
+			if result.NewName != result.Value {
+				if !isValidAliasName(result.NewName) {
+					fmt.Fprintf(os.Stderr, "Error: invalid alias name '%s'\n", result.NewName)
+					fmt.Fprintln(os.Stderr, "Name must start with a letter and contain only letters, numbers, and underscores")
+					continue
+				}
+				// Check for name conflict
+				if _, err := cfg.GetCommandByName(result.NewName); err == nil {
+					fmt.Fprintf(os.Stderr, "Error: command '%s' already exists\n", result.NewName)
+					continue
+				}
+			}
+
+			// Parse new tags
+			var newTags []string
+			if result.NewTags != "" {
+				for _, t := range strings.Split(result.NewTags, ",") {
+					t = strings.TrimSpace(t)
+					if t != "" {
+						newTags = append(newTags, t)
+					}
+				}
+			}
+
+			// Update the command
+			if err := cfg.UpdateCommand(result.Value, result.NewName, result.NewCommand, newTags); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				continue
+			}
+			if err := cfg.Save(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+				os.Exit(1)
+			}
+			if err := shell.UpdateAliases(cfg); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+			}
+			if result.NewName != result.Value {
+				fmt.Printf("Modified '%s' -> '%s'\n", result.Value, result.NewName)
+			} else {
+				fmt.Printf("Modified '%s'\n", result.NewName)
+			}
+			// Loop back to picker
+			continue
+		}
+
 		if result.Action == picker.ActionCancel {
 			return
 		}
@@ -555,6 +603,54 @@ func cmdRun(args []string) {
 					fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
 				}
 				fmt.Printf("Deleted '%s'\n", result.Value)
+				// Loop back to picker
+				continue
+			}
+
+			// Handle modify action
+			if result.Action == picker.ActionModify {
+				// Validate new name if changed
+				if result.NewName != result.Value {
+					if !isValidAliasName(result.NewName) {
+						fmt.Fprintf(os.Stderr, "Error: invalid alias name '%s'\n", result.NewName)
+						fmt.Fprintln(os.Stderr, "Name must start with a letter and contain only letters, numbers, and underscores")
+						continue
+					}
+					// Check for name conflict
+					if _, err := cfg.GetCommandByName(result.NewName); err == nil {
+						fmt.Fprintf(os.Stderr, "Error: command '%s' already exists\n", result.NewName)
+						continue
+					}
+				}
+
+				// Parse new tags
+				var newTags []string
+				if result.NewTags != "" {
+					for _, t := range strings.Split(result.NewTags, ",") {
+						t = strings.TrimSpace(t)
+						if t != "" {
+							newTags = append(newTags, t)
+						}
+					}
+				}
+
+				// Update the command
+				if err := cfg.UpdateCommand(result.Value, result.NewName, result.NewCommand, newTags); err != nil {
+					fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+					continue
+				}
+				if err := cfg.Save(); err != nil {
+					fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+					os.Exit(1)
+				}
+				if err := shell.UpdateAliases(cfg); err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+				}
+				if result.NewName != result.Value {
+					fmt.Printf("Modified '%s' -> '%s'\n", result.Value, result.NewName)
+				} else {
+					fmt.Printf("Modified '%s'\n", result.NewName)
+				}
 				// Loop back to picker
 				continue
 			}
