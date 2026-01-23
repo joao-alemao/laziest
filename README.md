@@ -56,10 +56,20 @@ laziest list -t Git  # Interactive picker filtered by tag
 **Picker keys:**
 - `↑/↓` or `j/k` - Navigate
 - `Enter` - Select and run command
+- `/` - Filter commands (search by name, command, or tags)
 - `e` - Add extra arguments, then run
+- `m` - Modify selected command (rename, change command, change tags)
+- `x` - Delete selected command (with confirmation)
 - `c` - Enter custom value (when `...` in binding)
 - `s` - Skip optional binding
 - `q` or `Esc` - Cancel
+
+**Filter mode (`/`):**
+- Type to filter commands in real-time (case-insensitive)
+- Matches against command name, command text, and tags
+- `Esc` - Clear filter and return to full list
+- `Enter` - Select current item
+- `Ctrl+C` - Cancel picker
 
 ### Add commands
 
@@ -80,16 +90,49 @@ laziest run train_model --extra --verbose  # Run with extra args
 laziest run -t ModelTraining            # Interactive picker if multiple matches
 ```
 
+### Modify commands
+
+Press `m` in the interactive picker to modify a command:
+
+```
+Select command:
+  > train_model  [ML]  python train.py
+    gs           [Git] git status
+
+[Press m]
+
+New name [train_model]: train_v2
+New command [python train.py]: python train_v2.py --config config.yaml
+New tags [ML]: ML,Training
+
+Modified 'train_model' -> 'train_v2'
+```
+
+All fields are optional - press Enter to keep the current value.
+
+### Delete commands
+
+Press `x` in the interactive picker to delete a command:
+
+```
+Select command:
+  > old_command  []  echo "delete me"
+
+[Press x]
+
+Delete 'old_command'? (y/n)
+```
+
+Or use the CLI:
+
+```bash
+laziest rm gs  # Remove by name
+```
+
 ### Manage tags
 
 ```bash
 laziest tags  # List all tags with command counts
-```
-
-### Remove commands
-
-```bash
-laziest rm gs  # Remove by name
 ```
 
 ### Help
@@ -113,6 +156,7 @@ Tags help organize commands by project or category:
 - Comma-separated, no spaces: `-t Tag1,Tag2`
 - Filter commands: `laziest list -t Tag`
 - Run with picker: `laziest run -t Tag` (shows interactive picker if multiple matches)
+- Tags are displayed in the picker: `command_name  [Tag1, Tag2]  actual command`
 
 ## Dynamic Bindings
 
@@ -163,7 +207,7 @@ When running commands with custom input bindings:
 Mark bindings as optional with `?` prefix. Optional bindings can be skipped:
 
 ```bash
-# Optional value binding with flag
+# Optional value binding with flag inside placeholder
 laziest add train "python train.py {%?--debug:[True,False]%}" -t ML
 
 # Optional directory binding
@@ -173,7 +217,7 @@ laziest add build "docker build {%?--platform:/platforms:*.txt%} ." -t Docker
 When running commands with optional bindings:
 - A `[Skip]` option appears in the picker
 - Press `s` to skip the binding
-- Skipping removes both the flag and the placeholder
+- Skipping removes the entire placeholder (including embedded flags)
 
 ### Multiple Bindings
 
@@ -242,4 +286,7 @@ laziest add gp "git push origin HEAD" -t Git
 # Interactive picker workflows
 laziest           # Pick any command
 laziest list -t ML  # Pick from ML commands only
+
+# Use filter to find commands quickly
+laziest           # Then press '/' and type 'git' to filter
 ```
