@@ -210,3 +210,55 @@ func IsValidTag(tag string) bool {
 
 	return true
 }
+
+// GetLastCommandPath returns the path to the last command file
+func GetLastCommandPath() (string, error) {
+	dir, err := GetConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "last"), nil
+}
+
+// SaveLastCommand saves the last executed command to disk
+func SaveLastCommand(cmd string) error {
+	path, err := GetLastCommandPath()
+	if err != nil {
+		return err
+	}
+
+	// Ensure directory exists
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+
+	if err := os.WriteFile(path, []byte(cmd), 0644); err != nil {
+		return fmt.Errorf("failed to save last command: %w", err)
+	}
+
+	return nil
+}
+
+// GetLastCommand reads the last executed command from disk
+func GetLastCommand() (string, error) {
+	path, err := GetLastCommandPath()
+	if err != nil {
+		return "", err
+	}
+
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return "", fmt.Errorf("no previous command")
+	}
+	if err != nil {
+		return "", fmt.Errorf("failed to read last command: %w", err)
+	}
+
+	cmd := string(data)
+	if cmd == "" {
+		return "", fmt.Errorf("no previous command")
+	}
+
+	return cmd, nil
+}

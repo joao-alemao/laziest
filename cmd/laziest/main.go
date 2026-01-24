@@ -34,6 +34,8 @@ func main() {
 		cmdAddRaw(os.Args[2:])
 	case "run", "r":
 		cmdRun(os.Args[2:])
+	case "!!", "last":
+		cmdLast()
 	case "remove", "rm":
 		cmdRemove(os.Args[2:])
 	case "tags", "t":
@@ -61,6 +63,8 @@ Usage:
   lz add-raw <name> <cmd> [-t <tags>]  Add command with manual binding syntax
   lz run <name> [--extra <args>]   Run command by name
   lz run -t <tag> [--extra <args>] Pick and run a command with that tag
+  lz !!                        Re-run the last executed command
+  lz last                      Re-run the last executed command (alias for !!)
   lz remove <name>             Remove a command
   lz tags                      List all tags with command counts
   lz init                      One-time setup: add source line to shell rc
@@ -137,6 +141,36 @@ func cmdInit() {
 	}
 	fmt.Println()
 	fmt.Println("Run 'source ~/.bashrc' or 'source ~/.zshrc' to activate.")
+}
+
+func cmdLast() {
+	lastCmd, err := config.GetLastCommand()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "No previous command. Run a command first with 'lz' or 'lz run <name>'.")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Running: %s\n", lastCmd)
+	fmt.Println(strings.Repeat("-", 40))
+
+	// Determine which shell to use
+	shellPath := os.Getenv("SHELL")
+	if shellPath == "" {
+		shellPath = "/bin/sh"
+	}
+
+	execCmd := exec.Command(shellPath, "-c", lastCmd)
+	execCmd.Stdin = os.Stdin
+	execCmd.Stdout = os.Stdout
+	execCmd.Stderr = os.Stderr
+
+	if err := execCmd.Run(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			os.Exit(exitErr.ExitCode())
+		}
+		fmt.Fprintf(os.Stderr, "Error executing command: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func cmdTags() {
@@ -439,6 +473,9 @@ func cmdInteractiveList(filterTags []string) {
 		if extraArgs != "" {
 			finalCommand = finalCommand + " " + extraArgs
 		}
+
+		// Save as last command for 'lz !!' / 'lz last'
+		config.SaveLastCommand(finalCommand)
 
 		fmt.Printf("Running: %s\n", finalCommand)
 		fmt.Println(strings.Repeat("-", 40))
@@ -872,6 +909,9 @@ func cmdRun(args []string) {
 	if extraArgs != "" {
 		finalCommand = finalCommand + " " + extraArgs
 	}
+
+	// Save as last command for 'lz !!' / 'lz last'
+	config.SaveLastCommand(finalCommand)
 
 	fmt.Printf("Running: %s\n", finalCommand)
 	fmt.Println(strings.Repeat("-", 40))
