@@ -30,8 +30,8 @@ func main() {
 		cmdInteractiveList(tags)
 	case "add", "a":
 		cmdAdd(os.Args[2:])
-	case "add-easy", "ae":
-		cmdAddEasy(os.Args[2:])
+	case "add-raw", "ar":
+		cmdAddRaw(os.Args[2:])
 	case "run", "r":
 		cmdRun(os.Args[2:])
 	case "remove", "rm":
@@ -43,7 +43,7 @@ func main() {
 	case "help", "-h", "--help":
 		printUsage()
 	case "version", "-v", "--version":
-		fmt.Printf("laziest version %s\n", version)
+		fmt.Printf("lz version %s\n", version)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", cmd)
 		printUsage()
@@ -52,27 +52,23 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println(`laziest - Quick command aliases manager
+	fmt.Println(`lz - Quick command aliases manager
 
 Usage:
-  laziest                      Interactive command picker
-  laziest list [-t <tag>]      Interactive picker, optionally filter by tag
-  laziest add <name> <cmd> [-t <tags>]  Add a new command
-  laziest add-easy "<cmd>"     Interactive command builder from example
-  laziest run <name> [--extra <args>]   Run command by name
-  laziest run -t <tag> [--extra <args>] Pick and run a command with that tag
-  laziest remove <name>        Remove a command
-  laziest tags                 List all tags with command counts
-  laziest init                 One-time setup: add source line to shell rc
-  laziest help                 Show this help
-  laziest version              Show version
+  lz                           Interactive command picker
+  lz list [-t <tag>]           Interactive picker, optionally filter by tag
+  lz add "<cmd>"               Interactive command builder from example
+  lz add-raw <name> <cmd> [-t <tags>]  Add command with manual binding syntax
+  lz run <name> [--extra <args>]   Run command by name
+  lz run -t <tag> [--extra <args>] Pick and run a command with that tag
+  lz remove <name>             Remove a command
+  lz tags                      List all tags with command counts
+  lz init                      One-time setup: add source line to shell rc
+  lz help                      Show this help
+  lz version                   Show version
 
-Adding commands:
-  laziest add deploy "kubectl apply -f ." -t DevOps,K8s
-  echo "git status" | laziest add gs -t Git
-
-Easy mode (interactive builder):
-  laziest add-easy "python train.py --config /configs/model.yaml --epochs 100"
+Adding commands (interactive builder - recommended):
+  lz add "python train.py --config /configs/model.yaml --epochs 100"
   
   Walks through each flag and asks how to handle it:
   - Keep static: Flag value stays as-is
@@ -80,11 +76,15 @@ Easy mode (interactive builder):
   - Value list: Choose from predefined options at runtime
   - Optional boolean: Include or skip the flag at runtime
 
+Adding commands (manual syntax):
+  lz add-raw deploy "kubectl apply -f ." -t DevOps,K8s
+  echo "git status" | lz add-raw gs -t Git
+
 Tags:
   - Comma-separated, no spaces: -t Tag1,Tag2
   - Used for filtering and organizing commands
 
-Dynamic bindings:
+Dynamic bindings (for add-raw):
   Directory binding:  {%/path/to/dir%} or {%/path/to/dir:*.yaml%}
   Value binding:      {%[val1,val2,val3]%}
   Custom input:       {%[val1,val2,...]%} - allows custom value via [Custom] option
@@ -97,7 +97,7 @@ Dynamic bindings:
 
 Extra arguments:
   Use --extra flag or press 'e' in picker to append extra args to command.
-  Example: laziest run train --extra --verbose --epochs 100
+  Example: lz run train --extra --verbose --epochs 100
 
 Interactive picker keys:
   ↑/↓ or j/k   Navigate
@@ -108,17 +108,15 @@ Interactive picker keys:
   q or Esc     Cancel
 
 Examples:
-  laziest add gs "git status" -t Git
-  laziest add train "python train.py --config {%/configs:*.yaml%}" -t ML
-  laziest add deploy "kubectl apply --dry-run={%[none,client,server]%}" -t K8s
-  laziest add debug "python train.py {%?--debug:[True,False]%}" -t ML
-  laziest add epochs "python train.py --epochs {%[10,50,100,...]%}" -t ML
-  laziest add-easy "python train.py --config /configs/model.yaml --epochs 100"
-  laziest run gs
-  laziest run train --extra --verbose
-  laziest run -t ML
-  laziest list -t Git
-  laziest rm gs`)
+  lz add "python train.py --config /configs/model.yaml --epochs 100"
+  lz add-raw gs "git status" -t Git
+  lz add-raw train "python train.py --config {%/configs:*.yaml%}" -t ML
+  lz add-raw deploy "kubectl apply --dry-run={%[none,client,server]%}" -t K8s
+  lz run gs
+  lz run train --extra --verbose
+  lz run -t ML
+  lz list -t Git
+  lz rm gs`)
 }
 
 func cmdInit() {
@@ -128,7 +126,7 @@ func cmdInit() {
 	}
 
 	if len(updated) == 0 {
-		fmt.Println("laziest is already configured in your shell rc files.")
+		fmt.Println("lz is already configured in your shell rc files.")
 		fmt.Println("If aliases aren't working, try: source ~/.bashrc or source ~/.zshrc")
 		return
 	}
@@ -150,7 +148,7 @@ func cmdTags() {
 
 	counts := cfg.GetTagCounts()
 	if len(counts) == 0 {
-		fmt.Println("No tags defined. Add tags with: laziest add <name> <cmd> -t <tags>")
+		fmt.Println("No tags defined. Add tags with: lz add-raw <name> <cmd> -t <tags>")
 		return
 	}
 
@@ -179,8 +177,8 @@ func cmdList(filterTags []string) {
 		fmt.Println("No commands saved.")
 		fmt.Println()
 		fmt.Println("Get started:")
-		fmt.Println("  1. Run 'laziest init' to set up shell integration")
-		fmt.Println("  2. Add commands with 'laziest add <name> <command> -t <tags>'")
+		fmt.Println("  1. Run 'lz init' to set up shell integration")
+		fmt.Println("  2. Add commands with 'lz add \"<command>\"'")
 		return
 	}
 
@@ -242,8 +240,8 @@ func cmdInteractiveList(filterTags []string) {
 		fmt.Println("No commands saved.")
 		fmt.Println()
 		fmt.Println("Get started:")
-		fmt.Println("  1. Run 'laziest init' to set up shell integration")
-		fmt.Println("  2. Add commands with 'laziest add <name> <command> -t <tags>'")
+		fmt.Println("  1. Run 'lz init' to set up shell integration")
+		fmt.Println("  2. Add commands with 'lz add \"<command>\"'")
 		return
 	}
 
@@ -467,14 +465,14 @@ func cmdInteractiveList(filterTags []string) {
 	}
 }
 
-func cmdAdd(args []string) {
+func cmdAddRaw(args []string) {
 	// Parse tags flag
 	tags, remaining := parseTagsFlag(args)
 
 	if len(remaining) < 1 {
 		fmt.Fprintln(os.Stderr, "Error: name required")
-		fmt.Fprintln(os.Stderr, "Usage: laziest add <name> <command> [-t <tags>]")
-		fmt.Fprintln(os.Stderr, "   or: echo 'command' | laziest add <name> [-t <tags>]")
+		fmt.Fprintln(os.Stderr, "Usage: lz add-raw <name> <command> [-t <tags>]")
+		fmt.Fprintln(os.Stderr, "   or: echo 'command' | lz add-raw <name> [-t <tags>]")
 		os.Exit(1)
 	}
 
@@ -498,8 +496,8 @@ func cmdAdd(args []string) {
 		command, err = shell.ReadFromStdin()
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "Error: no command provided")
-			fmt.Fprintln(os.Stderr, "Usage: laziest add <name> <command> [-t <tags>]")
-			fmt.Fprintln(os.Stderr, "   or: echo 'command' | laziest add <name> [-t <tags>]")
+			fmt.Fprintln(os.Stderr, "Usage: lz add-raw <name> <command> [-t <tags>]")
+			fmt.Fprintln(os.Stderr, "   or: echo 'command' | lz add-raw <name> [-t <tags>]")
 			os.Exit(1)
 		}
 	}
@@ -551,13 +549,13 @@ func cmdAdd(args []string) {
 	}
 }
 
-func cmdAddEasy(args []string) {
+func cmdAdd(args []string) {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "Error: example command required")
-		fmt.Fprintln(os.Stderr, "Usage: laziest add-easy \"<example command>\"")
+		fmt.Fprintln(os.Stderr, "Usage: lz add \"<example command>\"")
 		fmt.Fprintln(os.Stderr, "")
 		fmt.Fprintln(os.Stderr, "Example:")
-		fmt.Fprintln(os.Stderr, "  laziest add-easy \"python train.py --config /configs/model.yaml --epochs 100\"")
+		fmt.Fprintln(os.Stderr, "  lz add \"python train.py --config /configs/model.yaml --epochs 100\"")
 		os.Exit(1)
 	}
 
@@ -670,7 +668,7 @@ func cmdRun(args []string) {
 	}
 
 	if len(cfg.Commands) == 0 {
-		fmt.Fprintln(os.Stderr, "No commands saved. Use 'laziest add <name> <command>' to add one.")
+		fmt.Fprintln(os.Stderr, "No commands saved. Use 'lz add \"<command>\"' to add one.")
 		os.Exit(1)
 	}
 
@@ -801,8 +799,8 @@ func cmdRun(args []string) {
 		}
 	} else {
 		fmt.Fprintln(os.Stderr, "Error: name or -t <tag> required")
-		fmt.Fprintln(os.Stderr, "Usage: laziest run <name>")
-		fmt.Fprintln(os.Stderr, "   or: laziest run -t <tag>")
+		fmt.Fprintln(os.Stderr, "Usage: lz run <name>")
+		fmt.Fprintln(os.Stderr, "   or: lz run -t <tag>")
 		os.Exit(1)
 	}
 
@@ -901,7 +899,7 @@ func cmdRun(args []string) {
 func cmdRemove(args []string) {
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "Error: name required")
-		fmt.Fprintln(os.Stderr, "Usage: laziest remove <name>")
+		fmt.Fprintln(os.Stderr, "Usage: lz remove <name>")
 		os.Exit(1)
 	}
 

@@ -38,7 +38,7 @@ func GetShellRCPath(shellType ShellType) (string, error) {
 	}
 }
 
-// GetAliasFilePath returns the path to the laziest aliases file
+// GetAliasFilePath returns the path to the lz aliases file
 func GetAliasFilePath() (string, error) {
 	configDir, err := config.GetConfigDir()
 	if err != nil {
@@ -59,13 +59,13 @@ func DetectShell() ShellType {
 // GenerateAliases creates alias definitions for all commands
 func GenerateAliases(cfg *config.Config) string {
 	var sb strings.Builder
-	sb.WriteString("# Managed by laziest - do not edit manually\n")
-	sb.WriteString("# Run 'laziest' to manage your command aliases\n\n")
+	sb.WriteString("# Managed by lz - do not edit manually\n")
+	sb.WriteString("# Run 'lz' to manage your command aliases\n\n")
 
 	for _, cmd := range cfg.Commands {
 		if binding.HasBindings(cmd.Command) {
-			// Commands with bindings invoke laziest run for interactive resolution
-			sb.WriteString(fmt.Sprintf("alias %s='laziest run %s'\n", cmd.Name, cmd.Name))
+			// Commands with bindings invoke lz run for interactive resolution
+			sb.WriteString(fmt.Sprintf("alias %s='lz run %s'\n", cmd.Name, cmd.Name))
 		} else {
 			// Regular alias - escape single quotes in the command
 			escaped := strings.ReplaceAll(cmd.Command, "'", "'\\''")
@@ -149,7 +149,7 @@ func Init() ([]string, error) {
 		dir := filepath.Dir(aliasPath)
 		os.MkdirAll(dir, 0755)
 		if _, err := os.Stat(aliasPath); os.IsNotExist(err) {
-			os.WriteFile(aliasPath, []byte("# Managed by laziest - do not edit manually\n"), 0644)
+			os.WriteFile(aliasPath, []byte("# Managed by lz - do not edit manually\n"), 0644)
 		}
 	}
 
@@ -160,7 +160,7 @@ func Init() ([]string, error) {
 	return updated, nil
 }
 
-// containsSourceLine checks if the rc file already has the laziest source line
+// containsSourceLine checks if the rc file already has the lz source line
 func containsSourceLine(rcPath string) (bool, error) {
 	file, err := os.Open(rcPath)
 	if err != nil {
@@ -171,7 +171,7 @@ func containsSourceLine(rcPath string) (bool, error) {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
-		// Check for our source line or any variation that sources laziest aliases
+		// Check for our source line or any variation that sources lz aliases
 		if strings.Contains(line, ".config/laziest/aliases") {
 			return true, nil
 		}
@@ -189,7 +189,7 @@ func appendSourceLine(rcPath string) error {
 	defer file.Close()
 
 	// Add newlines before and the source line
-	content := fmt.Sprintf("\n# laziest aliases\n%s\n", sourceLine)
+	content := fmt.Sprintf("\n# lz aliases\n%s\n", sourceLine)
 	_, err = file.WriteString(content)
 	return err
 }
