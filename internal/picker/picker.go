@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"syscall"
-	"time"
 
+	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
 
@@ -891,23 +890,25 @@ func PickOption(prompt string, options []string) int {
 	}
 }
 
-// flushStdin discards any pending input in stdin
+// flushStdin discards any pending input in stdin using the POSIX tcflush syscall.
+//
+// This is a defensive/precautionary measure, not critical functionality.
+// It clears any stale characters that may be buffered in the terminal input
+// before entering a picker's read loop.
+//
+// Why this exists:
+// When multiple interactive prompts are shown in sequence (e.g., PromptYesNo
+// followed by PickOption), there's a potential for leftover characters in the
+// input buffer. For example, if a user types "yes" instead of just "y" for a
+// yes/no prompt, the "es" characters could remain buffered and be read by the
+// next picker, causing unexpected behavior.
+//
+// The tcflush(fd, TCIFLUSH) call discards all input that has been received
+// but not yet read by the application.
+//
+// This is called at the start of PickOption() before entering the input loop.
 func flushStdin(fd int) {
-	// Set non-blocking mode temporarily
-	syscall.SetNonblock(fd, true)
-	defer syscall.SetNonblock(fd, false)
-
-	// Read and discard any pending bytes
-	buf := make([]byte, 256)
-	for {
-		n, _ := os.Stdin.Read(buf)
-		if n == 0 {
-			break
-		}
-	}
-
-	// Small delay to ensure buffer is clear
-	time.Sleep(10 * time.Millisecond)
+	unix.IoctlSetInt(fd, unix.TCFLSH, unix.TCIFLUSH)
 }
 
 // renderOptions renders the simple option picker UI
