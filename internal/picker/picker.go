@@ -60,7 +60,7 @@ func filterItems(items []Item, filter string) []int {
 	}
 
 	filter = strings.ToLower(filter)
-	var indices []int
+	indices := []int{}
 
 	for i, item := range items {
 		// Check name
@@ -96,7 +96,7 @@ func filterStrings(items []string, filter string) []int {
 	}
 
 	filter = strings.ToLower(filter)
-	var indices []int
+	indices := []int{}
 
 	for i, item := range items {
 		if strings.Contains(strings.ToLower(item), filter) {
