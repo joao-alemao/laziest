@@ -407,6 +407,20 @@ func cmdInteractiveList(filterTags []string) {
 				// Use absolute path
 				selected = binding.GetAbsolutePath(b, bindResult.Value)
 
+			} else if b.Type == binding.BindingBooleanFlag {
+				// Handle optional boolean flag - ask yes/no to include
+				include, ok := picker.PromptYesNo(prompt)
+				if !ok {
+					os.Exit(0) // User cancelled
+				}
+				if !include {
+					// User chose not to include - remove the flag
+					finalCommand = binding.RemoveWithFlag(finalCommand, b)
+					continue
+				}
+				// User chose to include - resolve with empty value (just the flag)
+				selected = ""
+
 			} else { // BindingValues
 				bindResult := picker.PickString(b.Values, prompt, b.Optional, b.AllowCustom)
 				if bindResult.Action == picker.ActionCancel {
@@ -825,6 +839,20 @@ func cmdRun(args []string) {
 			}
 			// Use absolute path
 			selected = binding.GetAbsolutePath(b, result.Value)
+
+		} else if b.Type == binding.BindingBooleanFlag {
+			// Handle optional boolean flag - ask yes/no to include
+			include, ok := picker.PromptYesNo(prompt)
+			if !ok {
+				os.Exit(0) // User cancelled
+			}
+			if !include {
+				// User chose not to include - remove the flag
+				finalCommand = binding.RemoveWithFlag(finalCommand, b)
+				continue
+			}
+			// User chose to include - resolve with empty value (just the flag)
+			selected = ""
 
 		} else { // BindingValues
 			result := picker.PickString(b.Values, prompt, b.Optional, b.AllowCustom)
