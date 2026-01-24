@@ -1,27 +1,39 @@
-# laziest
+# lz
 
 Quick command aliases manager with dynamic bindings. Convert any command into a reusable alias with interactive parameter selection.
+
+## Why lz?
+
+- **Zero learning curve** - Paste any command into `lz add` and interactively convert it to a dynamic alias. No special syntax to memorize.
+
+- **Just works** - Built-in picker, automatic shell integration, no external dependencies like fzf or peco required.
+
+- **Powerful when you need it** - Directory pickers with glob filters, value lists with custom input, optional flags that cleanly disappear when skipped.
+
+- **Simple to backup** - Everything lives in `~/.config/laziest/commands.json`. Sync it however you already sync your dotfiles.
+
+Unlike snippet managers that require learning a new syntax or cheatsheet tools focused on documentation, lz is designed for your personal command workflows - take a command you just ran, make parts of it dynamic, and never type it out again.
 
 ## Quick Start
 
 ```bash
 # Install and setup
-laziest init
+lz init
 source ~/.bashrc  # or source ~/.zshrc
 
 # Add a command interactively (recommended)
-laziest add-easy "python train.py --config /configs/model.yaml --epochs 100 --debug True"
+lz add "python train.py --config /configs/model.yaml --epochs 100 --debug True"
 
 # Run it
-laziest
+lz
 ```
 
-## Easy Mode: Interactive Command Builder
+## Interactive Command Builder (Default)
 
-The easiest way to add commands is `add-easy` (alias: `ae`). Just paste an example command and laziest walks you through each flag:
+The default `lz add` command walks you through each flag interactively:
 
 ```bash
-laziest add-easy "python train.py --config /configs/model.yaml --epochs 100 --debug True --verbose"
+lz add "python train.py --config /configs/model.yaml --epochs 100 --debug True --verbose"
 ```
 
 ```
@@ -101,16 +113,16 @@ Requires `gh` CLI for private repo authentication:
 
 ```bash
 gh release download --repo joao-alemao/laziest --pattern '*linux_amd64*'
-tar xzf laziest_linux_amd64.tar.gz
-sudo mv laziest /usr/local/bin/
+tar xzf lz_linux_amd64.tar.gz
+sudo mv lz /usr/local/bin/
 ```
 
 For ARM64:
 
 ```bash
 gh release download --repo joao-alemao/laziest --pattern '*linux_arm64*'
-tar xzf laziest_linux_arm64.tar.gz
-sudo mv laziest /usr/local/bin/
+tar xzf lz_linux_arm64.tar.gz
+sudo mv lz /usr/local/bin/
 ```
 
 ### From Source
@@ -118,8 +130,8 @@ sudo mv laziest /usr/local/bin/
 ```bash
 git clone git@github.com:joao-alemao/laziest.git
 cd laziest
-go build -o laziest ./cmd/laziest
-sudo mv laziest /usr/local/bin/
+go build -o lz ./cmd/laziest
+sudo mv lz /usr/local/bin/
 ```
 
 ## Setup
@@ -127,7 +139,7 @@ sudo mv laziest /usr/local/bin/
 Run once to add shell integration:
 
 ```bash
-laziest init
+lz init
 source ~/.bashrc  # or source ~/.zshrc
 ```
 
@@ -137,11 +149,11 @@ This adds a source line to your shell rc file that loads aliases from `~/.config
 
 ### Interactive Picker (Default)
 
-Simply run `laziest` or `laziest list` to launch an interactive picker:
+Simply run `lz` or `lz list` to launch an interactive picker:
 
 ```bash
-laziest              # Interactive picker with all commands
-laziest list -t Git  # Interactive picker filtered by tag
+lz              # Interactive picker with all commands
+lz list -t Git  # Interactive picker filtered by tag
 ```
 
 **Picker keys:**
@@ -162,25 +174,25 @@ laziest list -t Git  # Interactive picker filtered by tag
 - `Enter` - Select current item
 - `Ctrl+C` - Cancel picker
 
-### Add Commands Manually
+### Add Commands (Manual Syntax)
 
 For simple commands or when you want full control over binding syntax:
 
 ```bash
 # Add with tags
-laziest add train_model "python train.py" -t ML
-laziest add gs "git status" -t Git
+lz add-raw train_model "python train.py" -t ML
+lz add-raw gs "git status" -t Git
 
 # Pipe from stdin (useful for adding from shell history)
-echo "kubectl get pods" | laziest add kgp -t K8s
+echo "kubectl get pods" | lz add-raw kgp -t K8s
 ```
 
 ### Run Commands
 
 ```bash
-laziest run gs                          # Run by name
-laziest run train_model --extra --verbose  # Run with extra args
-laziest run -t ML                       # Interactive picker if multiple matches
+lz run gs                          # Run by name
+lz run train_model --extra --verbose  # Run with extra args
+lz run -t ML                       # Interactive picker if multiple matches
 ```
 
 ### Modify Commands
@@ -219,32 +231,32 @@ Delete 'old_command'? (y/n)
 Or use the CLI:
 
 ```bash
-laziest rm gs  # Remove by name
+lz rm gs  # Remove by name
 ```
 
 ### Manage Tags
 
 ```bash
-laziest tags  # List all tags with command counts
+lz tags  # List all tags with command counts
 ```
 
 ### Help
 
 ```bash
-laziest help     # Show help
-laziest version  # Show version
+lz help     # Show help
+lz version  # Show version
 ```
 
 ## How It Works
 
 1. Commands are stored in `~/.config/laziest/commands.json`
 2. Shell aliases are written to `~/.config/laziest/aliases.sh`
-3. `laziest init` adds a one-time source line to `.bashrc`/`.zshrc`
+3. `lz init` adds a one-time source line to `.bashrc`/`.zshrc`
 4. After adding a command, it's immediately available as a shell alias (after sourcing)
 
 ## Dynamic Bindings Reference
 
-Commands can include dynamic placeholders that prompt for selection at runtime. Use `add-easy` to create these interactively, or write them manually:
+Commands can include dynamic placeholders that prompt for selection at runtime. Use `lz add` to create these interactively, or write them manually with `lz add-raw`:
 
 ### Directory Binding
 
@@ -252,13 +264,13 @@ Bind a parameter to files in a directory:
 
 ```bash
 # All files in directory
-laziest add train "python train.py --config {%/path/to/configs%}" -t ML
+lz add-raw train "python train.py --config {%/path/to/configs%}" -t ML
 
 # With extension filter
-laziest add train "python train.py --config {%/path/to/configs:*.yaml%}" -t ML
+lz add-raw train "python train.py --config {%/path/to/configs:*.yaml%}" -t ML
 
 # With flag inside binding
-laziest add train "python train.py {%--config:/path/to/configs:*.yaml%}" -t ML
+lz add-raw train "python train.py {%--config:/path/to/configs:*.yaml%}" -t ML
 ```
 
 When run, shows a picker with matching files (searched recursively). The selected file's absolute path is used.
@@ -268,8 +280,8 @@ When run, shows a picker with matching files (searched recursively). The selecte
 Bind a parameter to a fixed set of values:
 
 ```bash
-laziest add deploy "kubectl apply --dry-run={%[none,client,server]%}" -t K8s
-laziest add train "python train.py {%--use-gpu:[True,False]%}" -t ML
+lz add-raw deploy "kubectl apply --dry-run={%[none,client,server]%}" -t K8s
+lz add-raw train "python train.py {%--use-gpu:[True,False]%}" -t ML
 ```
 
 ### Custom Input Binding
@@ -278,10 +290,10 @@ Add `...` to a value binding to allow custom user input in addition to predefine
 
 ```bash
 # Predefined values + custom input option
-laziest add epochs "python train.py --epochs {%[10,50,100,...]%}" -t ML
+lz add-raw epochs "python train.py --epochs {%[10,50,100,...]%}" -t ML
 
 # Custom input only (no predefined values)
-laziest add msg "echo {%[...]%}" -t Util
+lz add-raw msg "echo {%[...]%}" -t Util
 ```
 
 When running commands with custom input bindings:
@@ -295,13 +307,13 @@ Mark bindings as optional with `?` prefix. Optional bindings can be skipped:
 
 ```bash
 # Optional value binding with flag inside placeholder
-laziest add train "python train.py {%?--debug:[True,False]%}" -t ML
+lz add-raw train "python train.py {%?--debug:[True,False]%}" -t ML
 
 # Optional directory binding
-laziest add build "docker build {%?--platform:/platforms:*.txt%} ." -t Docker
+lz add-raw build "docker build {%?--platform:/platforms:*.txt%} ." -t Docker
 
 # Optional boolean flag (include or skip)
-laziest add train "python train.py {%?--verbose%}" -t ML
+lz add-raw train "python train.py {%?--verbose%}" -t ML
 ```
 
 When running commands with optional bindings:
@@ -314,7 +326,7 @@ When running commands with optional bindings:
 Commands can have multiple bindings - pickers appear in sequence:
 
 ```bash
-laziest add train "python train.py --config {%/configs:*.yaml%} {%?--debug:[True,False]%}" -t ML
+lz add-raw train "python train.py --config {%/configs:*.yaml%} {%?--debug:[True,False]%}" -t ML
 ```
 
 ### Extra Arguments
@@ -323,10 +335,10 @@ Append additional arguments to any command at runtime:
 
 ```bash
 # Via --extra flag
-laziest run train --extra --verbose --epochs 100
+lz run train --extra --verbose --epochs 100
 
 # Via 'e' key in interactive picker
-laziest       # Press 'e', then type extra args
+lz       # Press 'e', then type extra args
 ```
 
 Extra arguments are always appended to the end of the resolved command.
@@ -336,30 +348,30 @@ Extra arguments are always appended to the end of the resolved command.
 Tags help organize commands by project or category:
 
 - Comma-separated, no spaces: `-t Tag1,Tag2`
-- Filter commands: `laziest list -t Tag`
-- Run with picker: `laziest run -t Tag` (shows interactive picker if multiple matches)
+- Filter commands: `lz list -t Tag`
+- Run with picker: `lz run -t Tag` (shows interactive picker if multiple matches)
 - Tags are displayed in the picker: `command_name  [Tag1, Tag2]  actual command`
 
 ## Examples
 
 ```bash
 # Add commands interactively (recommended)
-laziest add-easy "python train.py --config /configs/model.yaml --epochs 100 --debug True"
-laziest add-easy "kubectl apply -f deploy/ --dry-run server --namespace prod"
+lz add "python train.py --config /configs/model.yaml --epochs 100 --debug True"
+lz add "kubectl apply -f deploy/ --dry-run server --namespace prod"
 
 # Or add manually with binding syntax
-laziest add deploy "kubectl apply -f deploy/ {%?--dry-run:[client,server]%}" -t K8s
-laziest add train "python train.py --config {%/configs:*.yaml%} {%?--debug:[True,False]%}" -t ML
+lz add-raw deploy "kubectl apply -f deploy/ {%?--dry-run:[client,server]%}" -t K8s
+lz add-raw train "python train.py --config {%/configs:*.yaml%} {%?--debug:[True,False]%}" -t ML
 
 # Simple aliases
-laziest add gs "git status" -t Git
-laziest add gp "git push origin HEAD" -t Git
+lz add-raw gs "git status" -t Git
+lz add-raw gp "git push origin HEAD" -t Git
 
 # Run commands
-laziest                     # Interactive picker
-laziest list -t ML          # Filter by tag
-laziest run train --extra --verbose  # With extra args
+lz                     # Interactive picker
+lz list -t ML          # Filter by tag
+lz run train --extra --verbose  # With extra args
 
 # Use filter to find commands quickly
-laziest                     # Then press '/' and type to filter
+lz                     # Then press '/' and type to filter
 ```
