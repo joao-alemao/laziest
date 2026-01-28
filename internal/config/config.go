@@ -23,6 +23,13 @@ type Config struct {
 	path     string
 }
 
+// HistoryEntry represents a recently executed command
+type HistoryEntry struct {
+	Command   string    `json:"command"`   // Fully resolved command
+	Name      string    `json:"name"`      // Original lz command name
+	Timestamp time.Time `json:"timestamp"` // When it was executed
+}
+
 // GetConfigDir returns the path to the config directory
 func GetConfigDir() (string, error) {
 	home, err := os.UserHomeDir()
@@ -211,18 +218,42 @@ func IsValidTag(tag string) bool {
 	return true
 }
 
-// GetLastCommandPath returns the path to the last command file
-func GetLastCommandPath() (string, error) {
+// GetHistoryPath returns the path to the history file
+func GetHistoryPath() (string, error) {
 	dir, err := GetConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "last"), nil
+	return filepath.Join(dir, "history.json"), nil
 }
 
-// SaveLastCommand saves the last executed command to disk
-func SaveLastCommand(cmd string) error {
-	path, err := GetLastCommandPath()
+// LoadHistory reads the command history from disk
+func LoadHistory() ([]HistoryEntry, error) {
+	path, err := GetHistoryPath()
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		// No history file yet, return empty slice
+		return []HistoryEntry{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read history: %w", err)
+	}
+
+	var entries []HistoryEntry
+	if err := json.Unmarshal(data, &entries); err != nil {
+		return nil, fmt.Errorf("failed to parse history: %w", err)
+	}
+
+	return entries, nil
+}
+
+// SaveHistory writes the command history to disk
+func SaveHistory(entries []HistoryEntry) error {
+	path, err := GetHistoryPath()
 	if err != nil {
 		return err
 	}
@@ -233,32 +264,49 @@ func SaveLastCommand(cmd string) error {
 		return fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(cmd), 0644); err != nil {
-		return fmt.Errorf("failed to save last command: %w", err)
+	data, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal history: %w", err)
+	}
+
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write history: %w", err)
 	}
 
 	return nil
 }
 
-// GetLastCommand reads the last executed command from disk
-func GetLastCommand() (string, error) {
-	path, err := GetLastCommandPath()
+// AddHistoryEntry adds a new command to the history (max 10, deduplicated)
+func AddHistoryEntry(command, name string) error {
+	// Load existing history
+	entries, err := LoadHistory()
 	if err != nil {
-		return "", err
+		return err
 	}
 
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return "", fmt.Errorf("no previous command")
-	}
-	if err != nil {
-		return "", fmt.Errorf("failed to read last command: %w", err)
-	}
-
-	cmd := string(data)
-	if cmd == "" {
-		return "", fmt.Errorf("no previous command")
+	// Create new entry
+	newEntry := HistoryEntry{
+		Command:   command,
+		Name:      name,
+		Timestamp: time.Now(),
 	}
 
-	return cmd, nil
+	// Deduplicate: remove existing entry with same command
+	filtered := []HistoryEntry{}
+	for _, e := range entries {
+		if e.Command != command {
+			filtered = append(filtered, e)
+		}
+	}
+
+	// Prepend new entry (most recent first)
+	entries = append([]HistoryEntry{newEntry}, filtered...)
+
+	// Trim to max 10
+	if len(entries) > 10 {
+		entries = entries[:10]
+	}
+
+	// Save
+	return SaveHistory(entries)
 }

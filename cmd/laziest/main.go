@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+	"time"
 
 	"laziest/internal/binding"
 	"laziest/internal/builder"
@@ -34,7 +35,7 @@ func main() {
 		cmdAddRaw(os.Args[2:])
 	case "run", "r":
 		cmdRun(os.Args[2:])
-	case "!!", "last":
+	case "last":
 		cmdLast()
 	case "remove", "rm":
 		cmdRemove(os.Args[2:])
@@ -63,8 +64,7 @@ Usage:
   lz add-raw <name> <cmd> [-t <tags>]  Add command with manual binding syntax
   lz run <name> [--extra <args>]   Run command by name
   lz run -t <tag> [--extra <args>] Pick and run a command with that tag
-  lz !!                        Re-run the last executed command
-  lz last                      Re-run the last executed command (alias for !!)
+  lz last                      Pick and run from recent commands
   lz remove <name>             Remove a command
   lz tags                      List all tags with command counts
   lz init                      One-time setup: add source line to shell rc
@@ -144,22 +144,72 @@ func cmdInit() {
 }
 
 func cmdLast() {
-	lastCmd, err := config.GetLastCommand()
+	// Load history
+	entries, err := config.LoadHistory()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "No previous command. Run a command first with 'lz' or 'lz run <name>'.")
+		fmt.Fprintf(os.Stderr, "Error loading history: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("Running: %s\n", lastCmd)
+	if len(entries) == 0 {
+		fmt.Println("No recent commands.")
+		fmt.Println("Run commands with 'lz' or 'lz run <name>' first.")
+		return
+	}
+
+	// Build picker items with formatted display
+	// Format: "command                    2m ago"
+	maxCmdLen := 50
+
+	items := make([]picker.Item, len(entries))
+	for i, e := range entries {
+		cmd := e.Command
+		if len(cmd) > maxCmdLen {
+			cmd = cmd[:maxCmdLen-3] + "..."
+		}
+		timeStr := formatRelativeTime(e.Timestamp)
+		// Format with padding for alignment
+		display := fmt.Sprintf("%-*s  %s", maxCmdLen, cmd, timeStr)
+		items[i] = picker.Item{
+			Name:    display,
+			Command: e.Command, // Store the actual command here
+			Tags:    []string{},
+		}
+	}
+
+	// Show picker
+	result := picker.Pick(items, "Recent commands:")
+
+	if result.Action == picker.ActionCancel {
+		return
+	}
+
+	// The selected item's Command field has the actual command to run
+	selectedCmd := result.Value
+	// Find the actual command from entries by matching the display name
+	var actualCmd string
+	for _, item := range items {
+		if item.Name == selectedCmd {
+			actualCmd = item.Command
+			break
+		}
+	}
+
+	if actualCmd == "" {
+		fmt.Fprintln(os.Stderr, "Error: could not find selected command")
+		os.Exit(1)
+	}
+
+	// Execute the command
+	fmt.Printf("Running: %s\n", actualCmd)
 	fmt.Println(strings.Repeat("-", 40))
 
-	// Determine which shell to use
 	shellPath := os.Getenv("SHELL")
 	if shellPath == "" {
 		shellPath = "/bin/sh"
 	}
 
-	execCmd := exec.Command(shellPath, "-c", lastCmd)
+	execCmd := exec.Command(shellPath, "-c", actualCmd)
 	execCmd.Stdin = os.Stdin
 	execCmd.Stdout = os.Stdout
 	execCmd.Stderr = os.Stderr
@@ -170,6 +220,20 @@ func cmdLast() {
 		}
 		fmt.Fprintf(os.Stderr, "Error executing command: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func formatRelativeTime(t time.Time) string {
+	d := time.Since(t)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	}
 }
 
@@ -474,8 +538,8 @@ func cmdInteractiveList(filterTags []string) {
 			finalCommand = finalCommand + " " + extraArgs
 		}
 
-		// Save as last command for 'lz !!' / 'lz last'
-		config.SaveLastCommand(finalCommand)
+		// Save to history for 'lz !!'
+		config.AddHistoryEntry(finalCommand, cmd.Name)
 
 		fmt.Printf("Running: %s\n", finalCommand)
 		fmt.Println(strings.Repeat("-", 40))
@@ -625,8 +689,8 @@ func cmdAdd(args []string) {
 	}
 
 	// Prompt for name
-	name := picker.PromptInput("Command name: ")
-	if name == "" {
+	name, cancelled := picker.PromptInput("Command name: ", "")
+	if cancelled || name == "" {
 		fmt.Println("Cancelled.")
 		return
 	}
@@ -639,7 +703,7 @@ func cmdAdd(args []string) {
 	}
 
 	// Prompt for tags
-	tagsInput := picker.PromptInput("Tags (comma-separated, optional): ")
+	tagsInput, _ := picker.PromptInput("Tags (comma-separated, optional): ", "")
 	var tags []string
 	if tagsInput != "" {
 		for _, t := range strings.Split(tagsInput, ",") {
@@ -910,13 +974,12 @@ func cmdRun(args []string) {
 		finalCommand = finalCommand + " " + extraArgs
 	}
 
-	// Save as last command for 'lz !!' / 'lz last'
-	config.SaveLastCommand(finalCommand)
+	// Save to history for 'lz last'
+	config.AddHistoryEntry(finalCommand, cmd.Name)
 
 	fmt.Printf("Running: %s\n", finalCommand)
 	fmt.Println(strings.Repeat("-", 40))
 
-	// Determine which shell to use
 	shellPath := os.Getenv("SHELL")
 	if shellPath == "" {
 		shellPath = "/bin/sh"

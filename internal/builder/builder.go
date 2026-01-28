@@ -152,16 +152,18 @@ func processValueFlag(flag flagparse.Flag) (string, bool) {
 
 // buildDirectoryBinding creates a directory picker binding
 func buildDirectoryBinding(flag flagparse.Flag) (string, bool) {
-	// Ask for base directory
+	// Ask for base directory (pre-filled with extracted default)
 	defaultDir := extractDirectory(flag.Value)
-	prompt := fmt.Sprintf("Base directory [%s]: ", defaultDir)
-	baseDir := picker.PromptInput(prompt)
-	if baseDir == "" {
-		baseDir = defaultDir
+	baseDir, cancelled := picker.PromptInput("Base directory: ", defaultDir)
+	if cancelled {
+		return "", true
 	}
 
 	// Ask for filter pattern
-	filter := picker.PromptInput("Filter pattern (e.g., *.yaml, empty for all): ")
+	filter, cancelled := picker.PromptInput("Filter pattern (e.g., *.yaml, empty for all): ", "")
+	if cancelled {
+		return "", true
+	}
 
 	// Ask if optional
 	optional, ok := picker.PromptYesNo("Make this flag optional?")
@@ -187,7 +189,7 @@ func buildDirectoryBinding(flag flagparse.Flag) (string, bool) {
 
 // buildValueListBinding creates a value list binding
 func buildValueListBinding(flag flagparse.Flag) (string, bool) {
-	fmt.Println("\033[2mEnter values one per line. Empty line to finish.\033[0m")
+	fmt.Println("\033[2mEnter values one per line. Empty line or Esc to finish.\033[0m")
 	fmt.Printf("\033[2mTip: Add '...' as the last value to allow custom input at runtime.\033[0m\n")
 
 	// Pre-fill with current value as first suggestion
@@ -197,8 +199,8 @@ func buildValueListBinding(flag flagparse.Flag) (string, bool) {
 	}
 
 	for {
-		v := picker.PromptInput("Value: ")
-		if v == "" {
+		v, cancelled := picker.PromptInput("Value: ", "")
+		if cancelled || v == "" {
 			break
 		}
 		values = append(values, v)

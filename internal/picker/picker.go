@@ -297,26 +297,25 @@ func Pick(items []Item, prompt string) PickResult {
 			clearLines(prevFilteredCount + 2)
 
 			// Prompt for new name
-			newName := PromptInput(fmt.Sprintf("New name [%s]: ", item.Name))
-			if newName == "" {
-				newName = item.Name
+			newName, cancelled := PromptInput("Name: ", item.Name)
+			if cancelled {
+				render(items, selected, maxNameLen, maxTagLen, prompt, "", false, filterText, filteredIndices, prevFilteredCount)
+				continue
 			}
 
 			// Prompt for new command
-			newCmd := PromptInput(fmt.Sprintf("New command [%s]: ", item.Command))
-			if newCmd == "" {
-				newCmd = item.Command
+			newCmd, cancelled := PromptInput("Command: ", item.Command)
+			if cancelled {
+				render(items, selected, maxNameLen, maxTagLen, prompt, "", false, filterText, filteredIndices, prevFilteredCount)
+				continue
 			}
 
 			// Prompt for new tags
 			currentTags := strings.Join(item.Tags, ",")
-			tagsPrompt := "New tags (comma-separated)"
-			if currentTags != "" {
-				tagsPrompt = fmt.Sprintf("New tags [%s]", currentTags)
-			}
-			newTags := PromptInput(tagsPrompt + ": ")
-			if newTags == "" {
-				newTags = currentTags
+			newTags, cancelled := PromptInput("Tags: ", currentTags)
+			if cancelled {
+				render(items, selected, maxNameLen, maxTagLen, prompt, "", false, filterText, filteredIndices, prevFilteredCount)
+				continue
 			}
 
 			return PickResult{
@@ -329,8 +328,8 @@ func Pick(items []Item, prompt string) PickResult {
 
 		case buf[0] == 'e', buf[0] == 'E': // e - extra args
 			clearLines(prevFilteredCount + 2)
-			extra := PromptInput("Extra arguments: ")
-			if extra == "" {
+			extra, cancelled := PromptInput("Extra arguments: ", "")
+			if cancelled {
 				// User cancelled extra input, go back to picker
 				render(items, selected, maxNameLen, maxTagLen, prompt, "", false, filterText, filteredIndices, prevFilteredCount)
 				continue
@@ -502,8 +501,8 @@ func clearLines(n int) {
 func PickString(items []string, prompt string, optional bool, allowCustom bool) PickResult {
 	// If allowCustom with no predefined values, go straight to input
 	if allowCustom && len(items) == 0 {
-		value := PromptInput(prompt + " ")
-		if value == "" {
+		value, cancelled := PromptInput(prompt+" ", "")
+		if cancelled {
 			if optional {
 				return PickResult{Action: ActionSkip}
 			}
@@ -597,8 +596,8 @@ func PickString(items []string, prompt string, optional bool, allowCustom bool) 
 					}
 					// Check if [Custom] was selected
 					if allowCustom && actualIdx == len(displayItems)-1 {
-						value := PromptInput(prompt + " ")
-						if value == "" {
+						value, cancelled := PromptInput(prompt+" ", "")
+						if cancelled {
 							renderStrings(displayItems, selected, prompt, optional, allowCustom, false, filterText, filteredIndices, prevFilteredCount)
 							continue
 						}
@@ -686,8 +685,8 @@ func PickString(items []string, prompt string, optional bool, allowCustom bool) 
 		case buf[0] == 'c', buf[0] == 'C': // c - custom input (only if allowCustom)
 			if allowCustom {
 				clearLines(prevFilteredCount + 2)
-				value := PromptInput(prompt + " ")
-				if value == "" {
+				value, cancelled := PromptInput(prompt+" ", "")
+				if cancelled {
 					// User cancelled, go back to picker
 					renderStrings(displayItems, selected, prompt, optional, allowCustom, false, "", nil, len(displayItems))
 					continue
@@ -703,8 +702,8 @@ func PickString(items []string, prompt string, optional bool, allowCustom bool) 
 			}
 			// Check if [Custom] was selected
 			if allowCustom && selected == len(displayItems)-1 {
-				value := PromptInput(prompt + " ")
-				if value == "" {
+				value, cancelled := PromptInput(prompt+" ", "")
+				if cancelled {
 					// User cancelled, go back to picker
 					renderStrings(displayItems, selected, prompt, optional, allowCustom, false, "", nil, len(displayItems))
 					continue
@@ -970,35 +969,38 @@ func PromptYesNo(prompt string) (bool, bool) {
 	}
 }
 
-// PromptInput displays a simple inline input prompt and returns the user's input
-// Returns empty string if user cancels (Esc or Ctrl+C)
-func PromptInput(prompt string) string {
+// PromptInput displays an inline input prompt with optional default value
+// Returns (value, cancelled) where cancelled is true if user pressed Esc/Ctrl+C
+func PromptInput(prompt string, defaultValue string) (string, bool) {
 	fd := int(os.Stdin.Fd())
 
 	// Check if we're in a terminal
 	if !term.IsTerminal(fd) {
 		fmt.Fprintln(os.Stderr, "Cannot show input prompt: not a terminal")
-		return ""
+		return "", true
 	}
 
 	// Save terminal state and enable raw mode
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to enable raw mode: %v\n", err)
-		return ""
+		return "", true
 	}
 	defer term.Restore(fd, oldState)
 
-	fmt.Printf("%s", prompt)
+	// Initialize with default value
+	input := []rune(defaultValue)
 
-	var input []rune
+	// Display prompt with default value
+	fmt.Printf("%s%s", prompt, defaultValue)
+
 	buf := make([]byte, 3)
 
 	for {
 		n, err := os.Stdin.Read(buf)
 		if err != nil {
 			fmt.Println()
-			return ""
+			return "", true
 		}
 
 		if n == 0 {
@@ -1008,15 +1010,15 @@ func PromptInput(prompt string) string {
 		switch {
 		case buf[0] == 27 && n == 1: // Esc
 			fmt.Print("\r\n")
-			return ""
+			return "", true
 
 		case buf[0] == 3: // Ctrl+C
 			fmt.Print("\r\n")
-			return ""
+			return "", true
 
 		case buf[0] == 13 || buf[0] == 10: // Enter
 			fmt.Print("\r\n")
-			return string(input)
+			return string(input), false
 
 		case buf[0] == 127: // Backspace
 			if len(input) > 0 {
