@@ -2,6 +2,8 @@
 
 Quick command aliases manager with dynamic bindings. Convert any command into a reusable alias with interactive parameter selection.
 
+![lz demo](lzdemo.gif)
+
 ## Installation
 
 ### From GitHub Releases
