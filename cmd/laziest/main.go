@@ -187,21 +187,21 @@ func cmdLast() {
 	// The selected item's Command field has the actual command to run
 	selectedCmd := result.Value
 	// Find the actual command from entries by matching the display name
-	var actualCmd string
+	var actualItem picker.Item
 	for _, item := range items {
 		if item.Name == selectedCmd {
-			actualCmd = item.Command
+			actualItem = item
 			break
 		}
 	}
 
-	if actualCmd == "" {
+	if actualItem.Command == "" {
 		fmt.Fprintln(os.Stderr, "Error: could not find selected command")
 		os.Exit(1)
 	}
 
 	// Execute the command
-	fmt.Printf("Running: %s\n", actualCmd)
+	fmt.Printf("Running: %s\n", actualItem.Command)
 	fmt.Println(strings.Repeat("-", 40))
 
 	shellPath := os.Getenv("SHELL")
@@ -209,7 +209,7 @@ func cmdLast() {
 		shellPath = "/bin/sh"
 	}
 
-	execCmd := exec.Command(shellPath, "-c", actualCmd)
+	execCmd := exec.Command(shellPath, "-c", actualItem.Command)
 	execCmd.Stdin = os.Stdin
 	execCmd.Stdout = os.Stdout
 	execCmd.Stderr = os.Stderr
@@ -221,6 +221,9 @@ func cmdLast() {
 		fmt.Fprintf(os.Stderr, "Error executing command: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Update execution time.
+	config.AddHistoryEntry(actualItem.Command, actualItem.Name)
 }
 
 func formatRelativeTime(t time.Time) string {

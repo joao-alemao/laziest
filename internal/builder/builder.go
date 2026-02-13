@@ -27,38 +27,55 @@ type BuildResult struct {
 // BuildCommand runs the interactive command builder
 // Takes an example command and walks through each flag to create bindings
 func BuildCommand(command string) BuildResult {
-	baseCmd, flags := flagparse.Parse(command)
+	segments := flagparse.ParseSegments(command)
 
-	if len(flags) == 0 {
+	if !flagparse.HasFlags(segments) {
 		// No flags found - return as-is
 		return BuildResult{Command: command, Cancelled: false}
 	}
 
+	// Count flags for progress display
+	flagCount := 0
+	for _, seg := range segments {
+		if seg.Type == flagparse.SegmentFlag {
+			flagCount++
+		}
+	}
+
 	fmt.Printf("\n\033[1mBuilding command from:\033[0m %s\n\n", command)
-	fmt.Printf("\033[2mBase command: %s\033[0m\n", baseCmd)
-	fmt.Printf("\033[2mFound %d flag(s) to configure\033[0m\n\n", len(flags))
+	fmt.Printf("\033[2mFound %d flag(s) to configure\033[0m\n\n", flagCount)
 
-	// Process each flag
+	// Process each segment in order
 	var parts []string
-	parts = append(parts, baseCmd)
+	flagIdx := 0
 
-	for i, flag := range flags {
-		fmt.Printf("\033[1m[%d/%d] Flag: %s\033[0m", i+1, len(flags), flag.Name)
-		if flag.Value != "" {
-			fmt.Printf(" = %s", flag.Value)
+	for _, seg := range segments {
+		switch seg.Type {
+		case flagparse.SegmentStatic:
+			// Static segments pass through unchanged
+			parts = append(parts, seg.Static)
+
+		case flagparse.SegmentFlag:
+			flagIdx++
+			flag := seg.Flag
+
+			fmt.Printf("\033[1m[%d/%d] Flag: %s\033[0m", flagIdx, flagCount, flag.Name)
+			if flag.Value != "" {
+				fmt.Printf(" = %s", flag.Value)
+			}
+			fmt.Println()
+
+			binding, cancelled := processFlag(*flag)
+			if cancelled {
+				return BuildResult{Cancelled: true}
+			}
+
+			if binding != "" {
+				parts = append(parts, binding)
+			}
+
+			fmt.Println()
 		}
-		fmt.Println()
-
-		binding, cancelled := processFlag(flag)
-		if cancelled {
-			return BuildResult{Cancelled: true}
-		}
-
-		if binding != "" {
-			parts = append(parts, binding)
-		}
-
-		fmt.Println()
 	}
 
 	result := strings.Join(parts, " ")

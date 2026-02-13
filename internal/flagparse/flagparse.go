@@ -4,46 +4,64 @@ import (
 	"strings"
 )
 
+// SegmentType indicates whether a segment is static text or a flag
+type SegmentType int
+
+const (
+	SegmentStatic SegmentType = iota // Non-flag portion: "watch", "aws ec2 start-instances"
+	SegmentFlag                      // Flag with optional value: "-n 10", "--profile ai-dev/Admin"
+)
+
 // Flag represents a parsed flag from a command
 type Flag struct {
 	Name      string // "--config", "-v"
 	Value     string // "100", "/path/to/file", "" for boolean
 	IsBoolean bool   // true if no value or value is True/False
-	StartIdx  int    // start index in original command (of flag name)
-	EndIdx    int    // end index in original command (after value, or after flag if boolean)
 }
 
-// Parse extracts flags from a command string
-// Returns the base command (everything before first flag) and list of flags
-func Parse(command string) (string, []Flag) {
+// Segment represents a portion of a command, either static text or a flag
+type Segment struct {
+	Type   SegmentType
+	Static string // For SegmentStatic: the static text
+	Flag   *Flag  // For SegmentFlag: the flag details
+}
+
+// ParseSegments parses a command into an ordered list of segments
+// This preserves the relative order of all command parts, allowing commands like:
+// "watch -n 10 aws ec2 start-instances --instance-ids i-123"
+// to be correctly parsed with "aws ec2 start-instances" in its original position
+func ParseSegments(command string) []Segment {
 	tokens := tokenize(command)
 	if len(tokens) == 0 {
-		return command, nil
+		return nil
 	}
 
-	var flags []Flag
-	var baseCmd string
-	foundFirstFlag := false
+	var segments []Segment
+	var staticAccumulator []string
 	i := 0
 
 	for i < len(tokens) {
-		token := tokens[i]
+		tok := tokens[i]
 
-		// Check if this token is a flag
-		if isFlag(token.Value) {
-			foundFirstFlag = true
+		if isFlag(tok.Value) {
+			// Flush accumulated static tokens as a Static segment
+			if len(staticAccumulator) > 0 {
+				segments = append(segments, Segment{
+					Type:   SegmentStatic,
+					Static: strings.Join(staticAccumulator, " "),
+				})
+				staticAccumulator = nil
+			}
 
-			flag := Flag{
-				Name:     token.Value,
-				StartIdx: token.StartIdx,
-				EndIdx:   token.EndIdx,
+			// Parse the flag
+			flag := &Flag{
+				Name: tok.Value,
 			}
 
 			// Check if next token is a value (not another flag and exists)
 			if i+1 < len(tokens) && !isFlag(tokens[i+1].Value) {
 				valueToken := tokens[i+1]
 				flag.Value = valueToken.Value
-				flag.EndIdx = valueToken.EndIdx
 				flag.IsBoolean = isBooleanValue(valueToken.Value)
 				i += 2
 			} else {
@@ -52,27 +70,36 @@ func Parse(command string) (string, []Flag) {
 				i++
 			}
 
-			flags = append(flags, flag)
+			segments = append(segments, Segment{
+				Type: SegmentFlag,
+				Flag: flag,
+			})
 		} else {
-			if !foundFirstFlag {
-				// Part of base command
-				if baseCmd == "" {
-					baseCmd = token.Value
-				} else {
-					baseCmd += " " + token.Value
-				}
-			}
-			// If we've found a flag but this isn't a flag, it was already consumed as a value
+			// Not a flag - accumulate as static text
+			staticAccumulator = append(staticAccumulator, tok.Value)
 			i++
 		}
 	}
 
-	// If no flags found, base command is the whole command
-	if !foundFirstFlag {
-		return command, nil
+	// Flush any remaining static tokens
+	if len(staticAccumulator) > 0 {
+		segments = append(segments, Segment{
+			Type:   SegmentStatic,
+			Static: strings.Join(staticAccumulator, " "),
+		})
 	}
 
-	return strings.TrimSpace(baseCmd), flags
+	return segments
+}
+
+// HasFlags returns true if the segments contain at least one flag
+func HasFlags(segments []Segment) bool {
+	for _, seg := range segments {
+		if seg.Type == SegmentFlag {
+			return true
+		}
+	}
+	return false
 }
 
 // token represents a token in the command with its position
@@ -83,7 +110,7 @@ type token struct {
 }
 
 // tokenize splits a command into tokens, tracking positions
-// Does not handle quoted strings with spaces (as per requirements)
+// Does not handle quoted strings with spaces
 func tokenize(command string) []token {
 	var tokens []token
 	start := -1
