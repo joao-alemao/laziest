@@ -39,6 +39,9 @@ Sleep 200ms
 Type "cp ~/.config/laziest/commands.json ~/.config/laziest/commands.json.bak 2>/dev/null; true"
 Enter
 Sleep 200ms
+Type "cp ~/.config/laziest/aliases.sh ~/.config/laziest/aliases.sh.bak 2>/dev/null; true"
+Enter
+Sleep 200ms
 # Start fresh
 Type `mkdir -p ~/.config/laziest && echo '{"commands":[]}' > ~/.config/laziest/commands.json`
 Enter
@@ -288,6 +291,53 @@ Enter
 Sleep 2.5s
 
 # ============================================================
+# Scene 6: Shell aliases - commands available without invoking lz
+# ============================================================
+Type "lz init"
+Sleep 500ms
+Enter
+Sleep 1.5s
+
+Type "source ~/.bashrc"
+Sleep 500ms
+Enter
+Sleep 1.5s
+
+# Now "gs" works directly as an alias - no lz needed
+Type "gs"
+Sleep 1s
+Enter
+Sleep 2s
+
+# "train" also works directly - triggers interactive bindings
+Type "train"
+Sleep 1s
+Enter
+Sleep 1s
+
+# Binding 1: Select config file
+Down
+Sleep 300ms
+Enter
+Sleep 800ms
+
+# Binding 2: Select epochs
+Down
+Sleep 300ms
+Enter
+Sleep 800ms
+
+# Binding 3: Select debug
+Down
+Sleep 300ms
+Enter
+Sleep 800ms
+
+# Binding 4: Include --verbose? (y/n)
+Type "n"
+Sleep 2.5s
+
+# ============================================================
 # Hidden cleanup: restore original config, remove temp files
 # ============================================================
 Hide
@@ -295,5 +345,11 @@ Type "rm -rf /tmp/lz-demo"
 Enter
 Sleep 200ms
 Type "cp ~/.config/laziest/commands.json.bak ~/.config/laziest/commands.json 2>/dev/null; true"
+Enter
+Sleep 200ms
+Type "cp ~/.config/laziest/aliases.sh.bak ~/.config/laziest/aliases.sh 2>/dev/null; true"
+Enter
+Sleep 200ms
+Type "source ~/.bashrc"
 Enter
 Sleep 200ms
