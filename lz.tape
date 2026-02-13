@@ -293,6 +293,17 @@ Sleep 2.5s
 # ============================================================
 # Scene 6: Shell aliases - commands available without invoking lz
 # ============================================================
+Type "clear"
+Enter
+Sleep 500ms
+Type "# Commands are also added as shell aliases"
+Sleep 1.5s
+Enter
+Type "# You can call them directly!"
+Sleep 1.5s
+Enter
+Sleep 1s
+
 Type "lz init"
 Sleep 500ms
 Enter
