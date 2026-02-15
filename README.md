@@ -1,6 +1,6 @@
 # lz
 
-Quick command aliases manager with dynamic bindings. Convert any command into a reusable alias with interactive parameter selection.
+A TUI for managing command aliases. Run saved commands with custom interactive argument selections!
 
 ![lz demo](lzdemo.gif)
 
